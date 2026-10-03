@@ -332,10 +332,21 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
 void StageAnimEffect::paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport,
                                   int mask, const Region &deviceRegion, LogicalOutput *screen)
 {
+    static quint32 s_psCalls = 0;
+    if (++s_psCalls % 600 == 1)
+        qCWarning(STAGEANIM_LOG) << "live paintScreen called #" << s_psCalls
+                                 << "cards=" << m_liveCards.size()
+                                 << "anims=" << m_animations.size();
     effects->paintScreen(renderTarget, viewport, mask, deviceRegion, screen);
 
-    if (m_liveCards.isEmpty() || m_animations.isEmpty() == false)
+    if (m_liveCards.isEmpty() || !m_animations.isEmpty()) {
+        static quint32 s_psBlocked = 0;
+        if (++s_psBlocked % 600 == 1)
+            qCWarning(STAGEANIM_LOG) << "live paintScreen BLOCKED #" << s_psBlocked
+                                     << "cards=" << m_liveCards.size()
+                                     << "anims=" << m_animations.size();
         return;
+    }
     if (effects->activeFullScreenEffect())
         return;
     drawLiveCards(renderTarget, viewport);
@@ -625,7 +636,7 @@ void StageAnimEffect::slotWindowUnminimized(EffectWindow *w)
 
 bool StageAnimEffect::isActive() const
 {
-    if (!m_animations.isEmpty())
+    if (!m_animations.isEmpty() || !m_liveCards.isEmpty())
         return true;
     for (auto it = m_liveCards.constBegin(); it != m_liveCards.constEnd(); ++it) {
         if (liveCardPaintable(**it))
