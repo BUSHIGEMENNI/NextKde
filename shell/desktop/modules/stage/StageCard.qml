@@ -297,15 +297,15 @@ Item {
             width: parent.width - 32 - card.fanPad * 2
             height: parent.height - 44 - card.fanPad * 2
             radius: StageConfigService.cardRadius
-            // 背板浓度：静置 cardTint，悬停/驻留预示自动 ×1.3 提亮（上限 0.95）。
-            // 活体直绘时背板整体让透明（开洞）：合成器画的内容在条带窗
-            // 表面之下，不透明背板会把它盖成"黑卡"（cardTint 高达 0.95
-            // 时只剩 5% 透出）；顶光渐变/深度渐变照常叠在内容之上
-            color: card.livePainted ? Qt.rgba(0, 0, 0, 0)
-                : (card.isHovered || card.dropHovered || card.dwellHint)
-                    ? Qt.rgba(0.10, 0.13, 0.20,
-                        Math.min(0.95, StageConfigService.cardTint * 1.3))
-                    : Qt.rgba(0.05, 0.07, 0.12, StageConfigService.cardTint)
+            // 背板浓度：静置 cardTint，悬停/驻留预示自动 ×1.3 提亮（上限 0.95）
+            //（活体内容走 paintScreen 后置通道画在一切之上——背板正常渲染，
+            // 内容盖在其上，视觉与快照时代同层。旧的 livePainted 开洞是
+            // 给"内容画在条带之下"的已废弃架构留的，留着会把玻璃底板抠空
+            // = 卡片分裂成"透明框＋悬浮内容"）
+            color: (card.isHovered || card.dropHovered || card.dwellHint)
+                ? Qt.rgba(0.10, 0.13, 0.20,
+                    Math.min(0.95, StageConfigService.cardTint * 1.3))
+                : Qt.rgba(0.05, 0.07, 0.12, StageConfigService.cardTint)
             border.width: (card.dropHovered || card.selfMergeHint
                 || card.dwellHint) ? 2 : 1
             // dropHovered/selfMergeHint = 武装级高亮（亮蓝）；
