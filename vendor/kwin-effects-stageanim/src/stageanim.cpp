@@ -855,6 +855,10 @@ void StageAnimEffect::renderLiveTexture(LiveCard &card)
     const qreal scale = qreal(tw) / src.width();
     RenderViewport viewport(src, scale, renderTarget, QPoint());
     auto *scene = Compositor::self()->scene();
+    // 官方 screencast 的 render() 由流的独立时机调用；从损伤回调等非绘制
+    // 时机调用时必须自己把 FBO 绑上（beginFrame 不代劳）——漏绑 =
+    // incomplete framebuffer，渲出来全黑（嵌套试验台实测定位）
+    GLFramebuffer::pushFramebuffer(card.fbo.get());
     scene->renderer()->beginFrame(renderTarget, viewport);
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -862,6 +866,7 @@ void StageAnimEffect::renderLiveTexture(LiveCard &card)
                                   Scene::PAINT_WINDOW_TRANSFORMED,
                                   Region::infinite(), WindowPaintData{}, {}, {});
     scene->renderer()->endFrame();
+    GLFramebuffer::popFramebuffer();
     card.renderCount++;
     if (card.renderCount % 80 == 1) {
         GLubyte px[4] = {0, 0, 0, 0};
