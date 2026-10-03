@@ -7,11 +7,19 @@
 
 #pragma once
 
+#include "core/rendertarget.h"
+#include "core/renderviewport.h"
 #include "effect/effectwindow.h"
 #include "effect/offscreeneffect.h"
 #include "effect/timeline.h"
+#include "opengl/glframebuffer.h"
+#include "opengl/glshader.h"
+#include "opengl/gltexture.h"
 
+#include <QFileSystemWatcher>
+#include <QPointer>
 #include <QSet>
+#include <QTimer>
 #include <QVector>
 
 namespace KWin
@@ -29,6 +37,43 @@ struct StageAnimAnimation
     bool flat = false; // 目标卡片是正视的（中心拖放）：无倾斜分量
 };
 
+// 活体卡姿态：终态卡面（plate）未倾斜矩形 + 透视参数。与 QML 的
+// stage_tilt.frag 同一套数学（tiltProject 孪生），角/yOff/焦距全部由
+// shell 按当前状态发布（悬停压平/列滚动都会改变它们）。
+struct LiveCardPose
+{
+    QRectF rect;      // 屏幕逻辑坐标的卡面矩形（= 快照所在 plate）
+    qreal angleDeg = 0; // 已含右侧镜像符号的终态倾角
+    qreal yOff = 0;   // 卡中心相对共享地平线的 y 偏移（正 = 地平线下方）
+    qreal focal = 2200;
+    qreal radius = 10; // 圆角半径（与 plate.radius 同源）
+};
+
+// 一张活体卡：持 refOffscreenRendering（KWin 给隐藏窗补发帧回调 →
+// 客户端继续出帧，成本等同窗口可见）+ 窗口内容渲染进卡面尺寸的
+// 小 FBO（损伤驱动重拍，填充率可忽略），绘制时逐像素逆投影 + 圆角
+// SDF，画进侧栏浮层窗口的绘制过程中（chrome 之下、桌面之上）。
+struct LiveCard
+{
+    QString id;
+    QPointer<EffectWindow> window;
+    LiveCardPose target;  // 最新发布的终态
+    LiveCardPose from;    // 缓动起点
+    TimeLine ease{std::chrono::milliseconds(220)};
+    bool easing = false;
+    std::unique_ptr<EffectWindowVisibleRef> visibleRef;
+    bool offscreenRef = false;
+    QMetaObject::Connection damageConnection;
+    std::unique_ptr<GLTexture> texture; // 卡面尺寸 × dpr 的小纹理
+    std::unique_ptr<GLFramebuffer> fbo;
+    bool dirty = true; // 窗口有新损伤待重拍
+    qreal dpr = 1.0;  // 最近一次绘制时的输出缩放（纹理分配依据）
+    // 诊断计数（LiveTrace 节流日志）
+    quint32 damageCount = 0;
+    quint32 renderCount = 0;
+    quint32 paintCount = 0;
+};
+
 // MagicLamp derivative whose minimize target is resolved per animation
 // trigger: ① the card rect the shell publishes for this window (KWin
 // internalId) — the window shrinks into / grows out of its own Stage sidebar
@@ -43,6 +88,8 @@ public:
 
     void reconfigure(ReconfigureFlags) override;
     void prePaintScreen(ScreenPrePaintData &data, std::chrono::milliseconds presentTime) override;
+    void paintScreen(const RenderTarget &renderTarget, const RenderViewport &viewport,
+                     int mask, const Region &deviceRegion, LogicalOutput *screen) override;
     void prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
     void postPaintScreen() override;
     bool isActive() const override;
@@ -74,6 +121,27 @@ private:
     qreal m_glassOpacity = 0.65; // kwinrc GlassOpacity：飞行途中透明度（1=关）
     bool m_trace = false; // kwinrc TraceTargets：正常路径也打目标解析日志
     bool m_mirrorTargets = false; // kwinrc TargetMirror：右侧常驻——装卡姿态镜像
+
+    // ── 活体卡（合成器直绘，stage-live.json 由 shell 发布）──
+    void reloadLiveCards();
+    void releaseLiveCard(LiveCard &card);
+    void renderLiveTexture(LiveCard &card);
+    void drawLiveCards(const RenderTarget &renderTarget, const RenderViewport &viewport);
+    void writeLiveStatus();
+    bool liveCardPaintable(const LiveCard &card) const;
+    static LiveCardPose lerpPose(const LiveCardPose &a, const LiveCardPose &b, qreal t);
+    static LiveCardPose currentPose(const LiveCard &card);
+
+    QString m_livePath;
+    QString m_liveStatusPath;
+    QFileSystemWatcher *m_liveWatcher = nullptr;
+    QTimer m_liveStatusTimer;   // 周期刷 status 文件（shell 据此让位快照）
+    QTimer m_liveStaleTimer;    // 心跳超时 → 撤引用（shell 死亡防挂死）
+    QTimer m_liveFrameTimer;    // 自驱帧回调投喂（30Hz framePainted）
+    QHash<QString, QSharedPointer<LiveCard>> m_liveCards;
+    QSet<QString> m_livePending; // 文件里有、窗口还没出现（等 windowAdded）
+    std::unique_ptr<GLShader> m_liveShader;
+    bool m_liveEnabled = true; // kwinrc LiveCards 总闸（默认开，排障用）
 };
 
 } // namespace

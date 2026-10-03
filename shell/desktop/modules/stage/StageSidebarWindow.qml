@@ -869,6 +869,7 @@ PanelWindow {
         function onRevisionChanged() {
             root.layoutCards()
             root.publishSimulatedLayout("")
+            root.scheduleLivePublish()
         }
     }
 
@@ -880,6 +881,107 @@ PanelWindow {
         // 保留键位仅为 stageanim 的文件格式兼容（无需重建特效）
         JsonConfigStore.writePath(root._targetsPath, JSON.stringify(
             { targets: targets, suppress: [] }))
+    }
+
+    // ── 合成器活体卡（stageanim 直绘）────────────────────────────
+    // 发布 stage-live.json（每卡终态姿态：卡面矩形 + 透视参数，悬停压平
+    // /滚动 yOff 全按发布时刻的终值算，特效侧 220ms 缓动追上）；特效回执
+    // stage-live.json.status 确认直绘中 → 卡片缩略图 opacity 让位。回执
+    // 不新鲜（特效未装/挂死/已关）＝ 快照照常画，任何失败都静默退回静态。
+    readonly property string _livePath: Quickshell.stateDir
+        + "/fg-sched/stage-live.json"
+    property var _liveActiveIds: ({})   // id → true（回执新鲜期内）
+    property real _liveStatusAt: 0
+
+    function scheduleLivePublish() {
+        _livePublishTimer.restart()
+    }
+    property Timer _livePublishTimer: Timer {
+        interval: 60
+        onTriggered: root.publishLiveCards()
+    }
+    // 心跳：开着侧栏时周期重写（特效侧 45s 陈旧判据的另一半）
+    property Timer _liveHeartbeat: Timer {
+        interval: 15000
+        running: root.open
+        repeat: true
+        onTriggered: root.publishLiveCards()
+    }
+
+    function publishLiveCards() {
+        const cards = []
+        if (StageConfigService.thumbLiveEffect && StageModeService.enabled
+                && root.open) {
+            for (let i = 0; i < cardRepeater.count; i++) {
+                const slot = cardRepeater.itemAt(i)
+                if (!slot || !slot.cardItem)
+                    continue
+                if (slot.cardItem.engaging)
+                    continue
+                if (root.dragKey === slot.appKey)
+                    continue
+                const rep = WindowService.windowById(slot.targetId)
+                if (!rep || rep.toplevel?.minimized !== true)
+                    continue
+                const hid = WindowService.handleIdOf(slot.targetId)
+                if (hid === "")
+                    continue
+                const p = slot.cardItem.liveCardPose(
+                    root.hoveredKey === slot.appKey)
+                cards.push({ id: hid, x: p.x, y: p.y, w: p.w, h: p.h,
+                    angle: p.angle, yOff: p.yOff, focal: p.focal,
+                    radius: p.radius })
+            }
+        }
+        JsonConfigStore.writePath(root._livePath, JSON.stringify(
+            { at: Date.now(), cards: cards }))
+        // 模型变化后立即对账一次让位标记（不等下一轮回执轮询）
+        _applyLivePainted()
+    }
+
+    // 回执轮询：特效每 8s 刷 status；这里 1.5s 读一次，<6s 视为新鲜
+    property Timer _liveStatusPoll: Timer {
+        interval: 1500
+        running: true
+        repeat: true
+        onTriggered: {
+            JsonConfigStore.readPath(root._livePath + ".status",
+                function(data, exists) {
+                    if (!exists || !data) {
+                        root._liveActiveIds = ({})
+                        root._liveStatusAt = 0
+                        root._applyLivePainted()
+                        return
+                    }
+                    try {
+                        const st = JSON.parse(data)
+                        root._liveStatusAt = Number(st.at) || 0
+                        // 判定窗 > 特效回执周期（8s）+余量：6s 时每 8 秒
+                        // 有 2 秒不新鲜 → 快照闪回（"偶尔显示"的元凶）
+                        const fresh = Date.now() - root._liveStatusAt < 12000
+                        const map = ({})
+                        if (fresh && st.active && Array.isArray(st.cards))
+                            for (let i = 0; i < st.cards.length; i++)
+                                map[st.cards[i]] = true
+                        root._liveActiveIds = map
+                    } catch (e) {
+                        root._liveStatusAt = 0
+                        root._liveActiveIds = ({})
+                    }
+                    root._applyLivePainted()
+                })
+        }
+    }
+
+    function _applyLivePainted() {
+        for (let i = 0; i < cardRepeater.count; i++) {
+            const slot = cardRepeater.itemAt(i)
+            if (!slot || !slot.cardItem)
+                continue
+            const hid = WindowService.handleIdOf(slot.targetId)
+            slot.cardItem.livePainted = (hid !== ""
+                && root._liveActiveIds[hid] === true)
+        }
     }
 
     // 把一组窗口的动画起点矩形改写为指定屏幕矩形（中心合并：被拖卡
@@ -2110,6 +2212,7 @@ PanelWindow {
             // 空态也要归零输入遮罩：早退会让 stripHitRegion 保持上一轮的
             // 非零 extent，最后一张卡消失后旧卡区域继续吞点击（输入黑洞）
             _updateHitRegionExtent()
+            scheduleLivePublish()
             return
         }
         if (StageConfigService.layoutMode === "scroll") {
@@ -2231,6 +2334,7 @@ PanelWindow {
             if (root.scrollOffset > root._maxScroll)
                 root.scrollOffset = root._maxScroll
             _updateHitRegionExtent()
+            scheduleLivePublish()
             return
         }
         const lay = _layout(n)
@@ -2292,6 +2396,7 @@ PanelWindow {
             slot.dimmed = false
         }
         _updateHitRegionExtent()
+        scheduleLivePublish()
     }
     // 根窗口 onHeightChanged 不另设：cards 锚满窗体（上下留辉光余量），
     // 窗高变化必然带动 cards 高度 → cards.onHeightChanged 已覆盖，同帧
@@ -2343,6 +2448,7 @@ PanelWindow {
             _thumbRequestPacer.stop()
             root._thumbRequestQueue = []
         }
+        scheduleLivePublish()
     }
 
     // 窗口隐藏（启动台打开/面板关闭）时 release 不再送达——拖拽必须

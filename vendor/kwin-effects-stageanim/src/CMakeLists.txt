@@ -1,13 +1,16 @@
+set(CMAKE_AUTORCC ON)
+
 add_definitions(-DTRANSLATION_DOMAIN="kwin_effects_stageanim")
 
 set(stageanim_SOURCES
     stageanim.cpp
     main.cpp
+    shaders.qrc
 )
 
-add_library(stageanim13 MODULE ${stageanim_SOURCES})
-target_link_libraries(stageanim13 PRIVATE
+add_library(stageanim28 MODULE ${stageanim_SOURCES})
+target_link_libraries(stageanim28 PRIVATE
     KF6::ConfigGui
     KWin::kwin
 )
-install(TARGETS stageanim13 DESTINATION ${KDE_INSTALL_PLUGINDIR}/kwin/effects/plugins)
+install(TARGETS stageanim28 DESTINATION ${KDE_INSTALL_PLUGINDIR}/kwin/effects/plugins)

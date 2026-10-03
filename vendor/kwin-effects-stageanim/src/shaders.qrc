@@ -1,0 +1,9 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/stageanim">
+        <file>shaders/stage-live.vert</file>
+        <file>shaders/stage-live.frag</file>
+        <file>shaders/stage-live_core.vert</file>
+        <file>shaders/stage-live_core.frag</file>
+    </qresource>
+</RCC>

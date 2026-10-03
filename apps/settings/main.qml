@@ -1338,6 +1338,41 @@ ApplicationWindow {
                     }
                 }
 
+                // 合成器活体卡（stageanim 直绘）：隐藏窗经 KWin 离屏帧
+                // 回调继续出帧（成本=窗口可见在桌面，无 screencast 管线），
+                // 特效把窗口纹理按卡面透视直接画进卡里——所有卡常开实时
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+
+                        Text {
+                            text: "活体卡片（合成器直绘）"
+                            color: theme.primaryText
+                            font { pixelSize: 13; weight: Font.Medium }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "收进卡片的窗口实时显示画面（视频/终端输出持续更新）。走合成器直绘通道（无 PipeWire），窗口内容更新才会产生开销，与桌面上开着这些应用相当。特效未生效时自动回退静态快照。"
+                            color: theme.secondaryText
+                            font.pixelSize: 12
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    LiquidControls.LiquidGlassSwitch {
+                        checked: fgSchedPage.stageSnapshot.thumbLiveEffect === true
+                        accentColor: theme.accent
+                        trackColor: theme.divider
+                        onToggled: function(checked) {
+                            fgSchedPage.stageSet("thumbLiveEffect", checked)
+                        }
+                    }
+                }
+
                 StageSliderRow {
                     label: "连接抓帧时长"
                     unit: " ms"

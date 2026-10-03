@@ -124,6 +124,35 @@ Item {
     // delegate 重建归零——必须在此显式交还卡片姿态，否则卡片永远停在
     // 透明态，看起来就是"卡片消失了"
     onTargetIdChanged: engaging = false
+    // 合成器活体卡让位标记：特效回执（stage-live.json.status）确认正在
+    // 直绘这张卡 → 缩略图 Image 透明让出卡面（opacity 而非 visible——
+    // plane 不可见子树吞 visible 改动，opacity 链实测有效）
+    property bool livePainted: false
+    // 活体卡发布参数（StageSidebarWindow.publishLiveCards 消费）：
+    // 终态卡面矩形 + 透视参数。复合缩放 = slot.slotScale（布局态，发布
+    // 时刻稳定）× 悬停终态缩放（TopLeft 外扩，与 slot 的缩放同向复合：
+    // 卡面终位 = 卡原点(经 slot 变换的屏幕映射) + 复合缩放 × plate 本地
+    // 偏移）。hovered 由窗口侧传入（hoveredKey 命中，与 tiltCur 绑定同
+    // 口径的终值；engaging 卡不发布）。
+    function liveCardPose(hovered): var {
+        const fs = hovered ? StageConfigService.hoverScale : 1.0
+        const sc = (parent && parent.slotScale !== undefined
+            ? parent.slotScale : 1.0) * fs
+        const o = mapToItem(null, 0, 0)
+        const tiltFinal = scrollMode
+            ? (hovered ? 0 : StageConfigService.deckRestTilt)
+            : (hovered ? StageConfigService.tiltAngle : 0)
+        return {
+            x: Math.round(o.x + sc * plate.x),
+            y: Math.round(o.y + sc * plate.y),
+            w: Math.round(sc * plate.width),
+            h: Math.round(sc * plate.height),
+            angle: card.rightSide ? -tiltFinal : tiltFinal,
+            yOff: card.perspectiveYOff,
+            focal: StageGeo.TILT_FOCAL,
+            radius: StageConfigService.cardRadius,
+        }
+    }
     // x 入列方向镜像：左侧从右滑入（+70），右侧从左滑入（−70）——都从
     // 桌面一侧进条；收集落卡（enterInstant）几何即终值，不走侧滑
     x: rightSide
@@ -268,11 +297,15 @@ Item {
             width: parent.width - 32 - card.fanPad * 2
             height: parent.height - 44 - card.fanPad * 2
             radius: StageConfigService.cardRadius
-            // 背板浓度：静置 cardTint，悬停/驻留预示自动 ×1.3 提亮（上限 0.95）
-            color: (card.isHovered || card.dropHovered || card.dwellHint)
-                ? Qt.rgba(0.10, 0.13, 0.20,
-                    Math.min(0.95, StageConfigService.cardTint * 1.3))
-                : Qt.rgba(0.05, 0.07, 0.12, StageConfigService.cardTint)
+            // 背板浓度：静置 cardTint，悬停/驻留预示自动 ×1.3 提亮（上限 0.95）。
+            // 活体直绘时背板整体让透明（开洞）：合成器画的内容在条带窗
+            // 表面之下，不透明背板会把它盖成"黑卡"（cardTint 高达 0.95
+            // 时只剩 5% 透出）；顶光渐变/深度渐变照常叠在内容之上
+            color: card.livePainted ? Qt.rgba(0, 0, 0, 0)
+                : (card.isHovered || card.dropHovered || card.dwellHint)
+                    ? Qt.rgba(0.10, 0.13, 0.20,
+                        Math.min(0.95, StageConfigService.cardTint * 1.3))
+                    : Qt.rgba(0.05, 0.07, 0.12, StageConfigService.cardTint)
             border.width: (card.dropHovered || card.selfMergeHint
                 || card.dwellHint) ? 2 : 1
             // dropHovered/selfMergeHint = 武装级高亮（亮蓝）；
@@ -511,6 +544,10 @@ Item {
                 visible: !liveStream.visible
                     && !!(thumbCard.liveGrabUrl !== ""
                         ? thumbCard.liveGrabUrl : parent.thumbUrl)
+                // 合成器活体卡直绘时让出卡面（opacity：plane 内 visible
+                // 改动被吞，opacity 链有效——快照退路在任何让位失败时
+                // 自动恢复，特效不在=livePainted=false=快照照常画）
+                opacity: card.livePainted ? 0.0 : 1.0
                 source: thumbCard.liveGrabUrl !== ""
                     ? thumbCard.liveGrabUrl : parent.thumbUrl
                 // 同步解码 + 禁缓存：实时换帧时不留异步空白间隙（闪烁根源）

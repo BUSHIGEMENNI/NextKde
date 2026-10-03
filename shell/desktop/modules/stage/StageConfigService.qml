@@ -76,6 +76,10 @@ QtObject {
         "thumbLiveStream": { type: "bool", def: false },
         "streamCycleOnMs": { type: "int", min: 80, max: 1000, def: 250 },
         "streamCycleOffMs": { type: "int", min: 200, max: 5000, def: 750 },
+        // 合成器活体卡（stageanim 直绘）：隐藏窗经 refOffscreenRendering
+        // 继续出帧（成本=窗口可见在桌面），特效在条带绘制过程里把窗口
+        // 纹理按卡面透视画进卡里——无 screencast 管线，本机预算内。
+        "thumbLiveEffect": { type: "bool", def: false },
         // 窗口动画特效（stageanim）的 kwinrc 投影
         "animDuration": { type: "int", min: 120, max: 2000, def: 420 },
         "glassOpacity": { type: "real", min: 0.3, max: 1.0, def: 0.65 },
@@ -149,6 +153,8 @@ QtObject {
     // 离屏渲染）时长；平均负载 ≈ on/(on+off) × 单流全速
     property int streamCycleOnMs: 250
     property int streamCycleOffMs: 750
+    // 合成器活体卡（stage-live.json → stageanim 直绘），见 schema 注释
+    property bool thumbLiveEffect: false
     property int animDuration: 420
     // 飞行玻璃透明度：窗口在卡片↔桌面途中半透明透见桌面，落地凝实；
     // 1.0 = 关闭玻璃感（全程不透明，纯淡出）
