@@ -205,8 +205,14 @@ StageAnimEffect::StageAnimEffect()
     m_liveStaleTimer.start();
     m_liveStatusTimer.setInterval(8000);
     connect(&m_liveStatusTimer, &QTimer::timeout, this, [this]() {
-        if (!m_liveCards.isEmpty())
-            writeLiveStatus();
+        if (m_liveCards.isEmpty())
+            return;
+        for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
+            LiveCard &card = **it;
+            if (card.dirty && liveCardPaintable(card))
+                renderLiveTexture(card);
+        }
+        writeLiveStatus();
     });
     m_liveStatusTimer.start();
     // 自驱帧回调：KWin 内部 offscreen 计时器路径实测未给最小化窗送回调
@@ -729,14 +735,22 @@ void StageAnimEffect::reloadLiveCards()
                         auto it2 = m_liveCards.find(id);
                         if (it2 == m_liveCards.end())
                             return;
-                        (*it2)->dirty = true;
                         (*it2)->damageCount++;
+                        // 官方 screencast 同款时序：损伤到达（合成器线程、
+                        // 非绘制时机）立即重拍——渲染器重入在这里是安全的。
+                        // 动画期让位（只标脏等动画结束后心跳兜底拍）
+                        if (liveCardPaintable(**it2))
+                            renderLiveTexture(**it2);
+                        else
+                            (*it2)->dirty = true;
                         const QRectF r = currentPose(**it2).rect;
                         effects->addRepaint(r.adjusted(-40, -40, 40, 40).toAlignedRect());
                     });
             }
+            card->dpr = w->screen() ? w->screen()->scale() : 1.0;
             m_liveCards.insert(e.first, card);
             m_livePending.remove(e.first);
+            renderLiveTexture(*card); // 注册时机（非绘制）先拍一帧
             changed = true;
             qCWarning(STAGEANIM_LOG) << "live card +" << e.first
                                      << "caption" << w->caption()
@@ -877,13 +891,10 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
                                     const RenderViewport &viewport)
 {
     Q_UNUSED(renderTarget);
-    // 1) 先重拍损伤纹理（FBO 切换不与着色器 binder 交织）
-    for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
-        LiveCard &card = **it;
-        card.dpr = viewport.scale();
-        if (liveCardPaintable(card) && card.dirty)
-            renderLiveTexture(card);
-    }
+    // ⚠️ 本函数运行在合成器绘制周期内：只画现成纹理。任何渲染器重入
+    //（beginFrame/renderItem/endFrame、drawWindow）在这里都是状态机破坏
+    //＝桌面崩溃（2026-10-03 事故元凶）。重拍全部发生在非绘制时机
+    //（损伤回调/注册/状态心跳）。
 
     // 2) 着色器（惰性编译；失败一次不再重试）
     static bool shaderTried = false;
@@ -911,6 +922,7 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
     quint32 paintable = 0;
     for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
         LiveCard &card = **it;
+        card.dpr = viewport.scale();
         if (!liveCardPaintable(card) || !card.texture || !card.fbo) {
             const char *why = card.window.isNull() ? "window-gone"
                 : !card.window->isMinimized() ? "not-minimized"
