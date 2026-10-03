@@ -333,7 +333,7 @@ void StageAnimEffect::paintScreen(const RenderTarget &renderTarget, const Render
                                   int mask, const Region &deviceRegion, LogicalOutput *screen)
 {
     static quint32 s_psCalls = 0;
-    if (++s_psCalls % 600 == 1)
+    if (++s_psCalls % 18000 == 1)
         qCWarning(STAGEANIM_LOG) << "live paintScreen called #" << s_psCalls
                                  << "cards=" << m_liveCards.size()
                                  << "anims=" << m_animations.size();
@@ -341,7 +341,7 @@ void StageAnimEffect::paintScreen(const RenderTarget &renderTarget, const Render
 
     if (m_liveCards.isEmpty() || !m_animations.isEmpty()) {
         static quint32 s_psBlocked = 0;
-        if (++s_psBlocked % 600 == 1)
+        if (++s_psBlocked % 18000 == 1)
             qCWarning(STAGEANIM_LOG) << "live paintScreen BLOCKED #" << s_psBlocked
                                      << "cards=" << m_liveCards.size()
                                      << "anims=" << m_animations.size();
@@ -878,7 +878,7 @@ void StageAnimEffect::renderLiveTexture(LiveCard &card)
                                   Region::infinite(), WindowPaintData{}, {}, {});
     scene->renderer()->endFrame();
     card.renderCount++;
-    if (card.renderCount % 20 == 1) {
+    if (card.renderCount % 2000 == 1) {
         GLubyte px[4] = {0, 0, 0, 0};
         GLubyte tl[4] = {0, 0, 0, 0};
         // 探针必须仍在 push 窗口内（pop 后读外层绑定 = incomplete
@@ -1021,7 +1021,7 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         // 直绘落屏探针：从当前输出帧缓冲读卡中心像素（glReadPixels 原点
         // 在左下 → y 翻转），与 FBO 内容对照；节流防刷屏
         card.paintCount++;
-        if (card.paintCount % 300 == 1) {
+        if (card.paintCount % 9000 == 1) {
             GLubyte sp[4] = {255, 0, 255, 255};
             const qreal devH = viewport.renderRect().height() * dpr;
             glReadPixels(int(pose.rect.center().x() * dpr),
@@ -1034,7 +1034,7 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         card.texture->unbind();
     }
     static quint32 s_pass = 0;
-    if (++s_pass % 90 == 1)
+    if (++s_pass % 9000 == 1)
         qCWarning(STAGEANIM_LOG) << "live paint pass #" << s_pass
                                  << "paintable =" << paintable;
 }
