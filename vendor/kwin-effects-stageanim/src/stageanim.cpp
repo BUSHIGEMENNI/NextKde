@@ -866,18 +866,19 @@ void StageAnimEffect::renderLiveTexture(LiveCard &card)
                                   Scene::PAINT_WINDOW_TRANSFORMED,
                                   Region::infinite(), WindowPaintData{}, {}, {});
     scene->renderer()->endFrame();
-    GLFramebuffer::popFramebuffer();
     card.renderCount++;
-    if (card.renderCount % 80 == 1) {
+    if (card.renderCount % 20 == 1) {
         GLubyte px[4] = {0, 0, 0, 0};
         GLubyte tl[4] = {0, 0, 0, 0};
+        // 探针必须仍在 push 窗口内（pop 后读外层绑定 = incomplete
+        // framebuffer 全黑假象）；⚠️ 此前 push/pop 修复提交漏删旧 pop
+        // 造成双 pop 弹穿帧缓冲栈 = 嵌套崩溃真凶（2026-10-04 定位）
         glReadPixels(tw / 2, th / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
-        // 左上=终端时钟数字区（glReadPixels 原点在左下 → y 取高位）
-        glReadPixels(int(tw * 0.25), int(th * 0.9), 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, tl);
+        glReadPixels(int(tw * 0.15), int(th * 0.97), 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, tl);
         qCWarning(STAGEANIM_LOG) << "live tex #" << card.renderCount
                                  << "id" << card.id.left(8)
                                  << "center=" << px[0] << px[1] << px[2] << px[3]
-                                 << "topleft=" << tl[0] << tl[1] << tl[2] << tl[3]
+                                 << "top=" << tl[0] << tl[1] << tl[2] << tl[3]
                                  << "damage" << card.damageCount;
     }
     GLFramebuffer::popFramebuffer();

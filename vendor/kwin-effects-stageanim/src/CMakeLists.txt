@@ -8,9 +8,9 @@ set(stageanim_SOURCES
     shaders.qrc
 )
 
-add_library(stageanim31 MODULE ${stageanim_SOURCES})
-target_link_libraries(stageanim31 PRIVATE
+add_library(stageanim33 MODULE ${stageanim_SOURCES})
+target_link_libraries(stageanim33 PRIVATE
     KF6::ConfigGui
     KWin::kwin
 )
-install(TARGETS stageanim31 DESTINATION ${KDE_INSTALL_PLUGINDIR}/kwin/effects/plugins)
+install(TARGETS stageanim33 DESTINATION ${KDE_INSTALL_PLUGINDIR}/kwin/effects/plugins)
