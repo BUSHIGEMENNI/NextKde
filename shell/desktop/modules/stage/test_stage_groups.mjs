@@ -86,6 +86,22 @@ check("excludeKey drops active app group", groups.map(g => g.key),
 groups = groupRecords(wins, {});
 check("no opts: everything groups", groups.length, 5);
 
+// ── requireMinimized（v81 视图口径：只收已最小化窗口）──
+// 放出/收集延迟期"可见未聚焦"窗不得成卡（QML 画它、发布流排除它＝闪烁）
+const minWins = [
+    rec({ windowId: "m1", identity: { desktopId: "a" },
+        toplevel: { minimized: true } }),
+    rec({ windowId: "v1", identity: { desktopId: "b" },
+        toplevel: { minimized: false } }),
+    rec({ windowId: "u1", identity: { desktopId: "c" } }),  // 无 minimized 字段
+];
+check("requireMinimized: only minimized windows",
+    groupRecords(minWins, { requireMinimized: true })
+        .map(g => g.wins.map(w => w.windowId).join(",")),
+    ["m1"]);
+check("requireMinimized: off keeps old behavior",
+    groupRecords(minWins, {}).map(g => g.key), ["a", "b", "c"]);
+
 // ── 前台应用整组排除（excludeKeepMinimized）──
 // 活动窗 + 桌面兄弟 + 最小化兄弟同组：桌面兄弟不出卡，最小化兄弟保留
 //（侧栏是最小化窗口的家，否则那扇窗困在"不可见+无卡"里）

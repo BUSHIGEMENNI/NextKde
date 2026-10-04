@@ -52,12 +52,19 @@ export function isSameApp(a, b, appIdA, appIdB) {
 //   opts.excludeKeepMinimized — 为真时，被排除组里已最小化的窗口仍保留。
 //                       侧栏是最小化窗口的家：前台应用的最小化子窗若连卡
 //                       都不出，那扇窗就困在"不可见 + 无卡"里点不回来了。
+//   opts.requireMinimized — 只收已最小化窗口（v81：视图侧与发布侧同口径）。
+//                       旧视图口径＝"桌面上除活动组外全部"成卡，依赖
+//                       autoMinimize 兜底收走——还原中/收集延迟期的
+//                       "可见未聚焦"窗口会闪出（甚至驻留）鬼卡：QML 侧
+//                       画它、发布流却正确排除＝两侧口径分裂的闪烁根源。
 export function groupRecords(records, opts = {}) {
     const groups = []
     const byKey = ({})
     for (let i = 0; i < records.length; i++) {
         const r = records[i]
         if (opts.skipWindowId && r.windowId === opts.skipWindowId)
+            continue
+        if (opts.requireMinimized && r.toplevel?.minimized !== true)
             continue
         if (opts.requirePid && !(r.pid > 0))
             continue

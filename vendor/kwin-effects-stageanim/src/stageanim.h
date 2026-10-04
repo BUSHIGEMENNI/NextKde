@@ -137,6 +137,10 @@ struct LiveCard
     //（压暗 × 视口边缘渐隐）
     qreal alpha = 1.0;
     qreal alphaFrom = 1.0, alphaTo = 1.0;
+    // 入场起摆保持（v80）：发布先于最小化落地（收编快照等待 ~120ms），
+    // 按发布时刻起摆淡入＝卡先于窗口出现在槽位（"先出现卡片再收编"）。
+    // 挂起等窗口真开始装卡飞行（isMinimized/最小化动画）才同拍起摆
+    bool enterHold = false;
     qreal fade = 1.0;
     bool closeHot = false;
     TimeLine fadeTl{std::chrono::milliseconds(180)};

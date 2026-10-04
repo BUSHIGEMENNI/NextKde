@@ -179,6 +179,11 @@ PanelWindow {
                 // 计入 count、发布侧却无矩形无槽位——两侧 count 差 1，
                 // auto 路径布局整体错位
                 requirePid: true,
+                // requireMinimized（v81）：视图与发布同口径只收已最小化
+                // 窗口。旧口径"桌面上除活动组全部成卡"依赖 autoMinimize
+                // 兜底——放出/收集延迟期"可见未聚焦"窗会闪出鬼卡（QML
+                // 画它、发布流排除它），焦点没落回时鬼卡永久驻留
+                requireMinimized: true,
                 skipWindowId: root.stageActiveId,
                 excludeKey: activeRec ? root._effKey(activeRec) : "",
                 excludeKeepMinimized: true,
@@ -669,6 +674,9 @@ PanelWindow {
                     + " (pipeline in flight, " + ids.length + " window(s))")
                 return
             }
+            // 交棒淡出：置 engaging 后窗口飞出与卡淡出同拍（v80 残影修）
+            _markEngagingByIds(ids)
+            root._deskReleaseEngageReset.restart()
             WindowService.activateGroup(ids, focusId)
             console.info("[StageSidebar] desk reveal: restore "
                 + ids.length + " window(s)")
@@ -684,6 +692,8 @@ PanelWindow {
             if (revived.length > 0) {
                 deskCollectedIds = revived
                 deskCollectedFocusId = root.stageActiveId || revived[0]
+                _markEngagingByIds(revived)
+                root._deskReleaseEngageReset.restart()
                 WindowService.activateGroup(revived,
                     deskCollectedFocusId)
                 console.warn("[StageSidebar] desk reveal: revived orphaned"
@@ -706,6 +716,8 @@ PanelWindow {
                 return
             const cur = WindowService.activeWindowId
             if (cur !== "" && w.ids.indexOf(cur) < 0) {
+                _markEngagingByIds(w.ids)
+                root._deskReleaseEngageReset.restart()
                 WindowService.minimizeGroup(w.ids, false)
                 console.warn("[StageSidebar] desk undo: late minimize"
                     + " landed, restored without focus steal")
@@ -713,6 +725,8 @@ PanelWindow {
             }
             const focusId = w.ids.indexOf(w.focusId) >= 0
                 ? w.focusId : (cur !== "" ? cur : w.ids[0])
+            _markEngagingByIds(w.ids)
+            root._deskReleaseEngageReset.restart()
             WindowService.activateGroup(w.ids, focusId)
             console.warn("[StageSidebar] desk undo: late minimize landed ("
                 + w.ids.length + "), restored")
@@ -931,6 +945,10 @@ PanelWindow {
     readonly property string _liveStatusPath: Quickshell.stateDir
         + "/fg-sched/stage-live.json.status"
     property var _liveActiveIds: ({})   // id → true（回执新鲜期内）
+    // 乐观握手记账（v80）：seeded=本轮已播种待回执确认；rejected=回执
+    // 未确认过（特效没接住），不再播种防 QML 显隐振荡
+    property var _liveSeeded: ({})
+    property var _liveSeedRejected: ({})
     property real _liveStatusAt: 0
     property bool liveChromeOwned: false // 特效已接管卡面视觉（QML 只留输入）
 
@@ -1040,11 +1058,25 @@ PanelWindow {
         // 新发布的组键补一次快读回执：新卡注册后特效 ~16ms 内已写回执，
         // 主动读一次把"特效已画/QML 快照也画"的双绘窗口从 ~1.5s 压到 ~0.2s
         if (root.liveChromeOwned) {
+            // 乐观握手（v80）：全局回执已确认特效在画（liveChromeOwned）
+            // 时，新发布 id 立即让位 QML 视觉——不等 200ms 快读。特效覆盖
+            // 层随卡倾斜（v78 起）后，双绘窗内两套图标位置错开＝"切换时
+            // 双重图标"显形（老毛病复发）。回执读取仍是权威：未确认的
+            // 播种 id 进 rejected 名单不再播种（防 QML 显隐振荡），特效
+            // 真接住时回执会把它加回 _liveActiveIds。
+            let seeded = false
             for (let k = 0; k < out.length; k++) {
-                if (!root._liveActiveIds[out[k].id]) {
-                    root._fastStatusOnce.restart()
-                    break
+                const nid = out[k].id
+                if (!root._liveActiveIds[nid]
+                        && !root._liveSeedRejected[nid]) {
+                    root._liveActiveIds[nid] = true
+                    root._liveSeeded[nid] = true
+                    seeded = true
                 }
+            }
+            if (seeded) {
+                root._fastStatusOnce.restart()
+                _applyLivePainted()
             }
         }
         // 模型变化后立即对账一次让位标记（不等下一轮回执轮询）
@@ -1065,6 +1097,8 @@ PanelWindow {
             function(data, exists) {
                 if (!exists || !data) {
                     root._liveActiveIds = ({})
+                    root._liveSeeded = ({})
+                    root._liveSeedRejected = ({})
                     root._liveStatusAt = 0
                     root.liveChromeOwned = false
                     root._applyLivePainted()
@@ -1089,10 +1123,22 @@ PanelWindow {
                             && Array.isArray(st.cards))
                         for (let i = 0; i < st.cards.length; i++)
                             map[st.cards[i]] = true
+                    // 乐观握手结算：已播种但回执没列＝特效没接住 → 进
+                    // rejected 名单（下次发布不再播种）；回执已列的清掉
+                    // 历史拒绝（再次收编同 id 时播种不受旧账拖累）。
+                    for (const sid in root._liveSeeded) {
+                        if (!map[sid])
+                            root._liveSeedRejected[sid] = true
+                        else
+                            delete root._liveSeedRejected[sid]
+                    }
+                    root._liveSeeded = ({})
                     root._liveActiveIds = map
                 } catch (e) {
                     root._liveStatusAt = 0
                     root._liveActiveIds = ({})
+                    root._liveSeeded = ({})
+                    root._liveSeedRejected = ({})
                     root.liveChromeOwned = false
                 }
                 root._applyLivePainted()
@@ -1482,6 +1528,52 @@ PanelWindow {
             const s = cardRepeater.itemAt(i)
             if (s && s.appKey === groupKey && s.cardItem)
                 s.cardItem.engaging = false
+        }
+    }
+
+    // 显示桌面整批放出的窗口对应卡置 engaging（与点卡同款交棒淡出）。
+    // 不置位＝发布流最后载荷 alpha 目标仍 1，记录翻转销毁委托后特效按
+    // 满 alpha 滞留 600ms 迟滞再 150ms 淡出＝"放出时旧卡位残影一闪"
+    // （v80）。窗口真还原后委托即销毁，标记随之消失。
+    function _markEngagingByIds(ids) {
+        if (!ids || ids.length === 0)
+            return
+        for (let i = 0; i < cardRepeater.count; i++) {
+            const slot = cardRepeater.itemAt(i)
+            if (!slot || !slot.cardItem)
+                continue
+            const slotIds = root._idsOf(slot.idsJson)
+            for (let j = 0; j < ids.length; j++) {
+                if (slotIds.indexOf(ids[j]) >= 0) {
+                    slot.cardItem.engaging = true
+                    break
+                }
+            }
+        }
+    }
+
+    // 放出交棒安全网：1.5s 后仍最小化＝还原失败，把卡复位回可视
+    // （否则停在 engaging=true 隐形态+热区挡输入，_resetEngaging 注释
+    // 同款病灶）
+    property Timer _deskReleaseEngageReset: Timer {
+        interval: 1500
+        onTriggered: {
+            for (let i = 0; i < cardRepeater.count; i++) {
+                const s = cardRepeater.itemAt(i)
+                if (!s || !s.cardItem || !s.cardItem.engaging)
+                    continue
+                const ids = root._idsOf(s.idsJson)
+                let stillMin = false
+                for (let j = 0; j < ids.length; j++) {
+                    const r = WindowService.windowById(ids[j])
+                    if (r && r.toplevel?.minimized) {
+                        stillMin = true
+                        break
+                    }
+                }
+                if (stillMin)
+                    s.cardItem.engaging = false
+            }
         }
     }
 

@@ -380,12 +380,31 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
         bool anyAnim = false;
         for (LiveCard *cp : order) {
             LiveCard &card = *cp;
+            // ── 入场起摆保持 ── 收编卡等窗口飞行**结束**（最小化已落地
+            // 且不再有最小化动画）才凝实——与飞行同时起摆时 OutCubic 前
+            // 快后慢，飞行到一半卡已六成显形＝"动画结束之前卡片就出现了"
+            //（用户定稿编排：全程只有飞行的窗口，落位瞬间卡尾段凝实，
+            // 与其他卡的让位合流）。撤销（undo）路径窗口永不最小化：卡
+            // 保持 alpha 0，缺席踢除无闪；全局动画关闭时 m_animations
+            // 恒不含该窗＝最小化即落位，直接凝实
+            if (card.enterHold) {
+                if (card.window && card.window->isMinimized()
+                        && !m_animations.contains(card.window.data())) {
+                    card.enterHold = false;
+                    card.alphaFrom = 0.0;
+                    card.alphaTo = 1.0;
+                    card.fadeTl = TimeLine(std::chrono::milliseconds(180));
+                    card.fadeAnimating = true;
+                    anyAnim = true;
+                }
+                continue; // 保持期不进下方状态机/悬停引擎（alpha 0 不可点）
+            }
             // ── 透明度唯一状态机 ── 目标只由发布状态决定（engaging/dying
             // → 0，否则 → 1），补间从当前值单向趋近，目标翻转即重启。
             // ⚠️ 历史教训（v61~v63 三连补丁的总根因，已整体废除）：曾把
             // alpha 耦合 KWin 飞行进度（alpha=1-p）——换卡时旧卡的**最小化**
             // 飞行让 p 归零 → alpha 弹回 1 ＝"旧卡一闪而过"；看门狗又与它
-            // 强制清除 fadeAnimating 交互相打＝无操作透明抽搐。展开淡出
+            // 强制清除 fadeAnimating 交相互打＝无操作透明抽搐。展开淡出
             // 时长 = animMs（与窗口飞行同拍收束），视觉等价且零耦合。
             const qreal aTo = (card.engaging || card.dying) ? 0.0 : 1.0;
             if ((!card.fadeAnimating && card.alpha != aTo)
@@ -1276,13 +1295,21 @@ void StageAnimEffect::reloadLiveCards()
             card->chromeKey.clear(); // 强制首帧光栅铭牌
             // 入场动画（老 QML 收编入场完整迁移）：x 侧滑 ±70（OutCubic）
             // + 淡入 OutCubic（enterInstant=飞行时长 animMs/普通=enterMs）
-            // + 0.86 长到 1（OutBack）+ 拆分迸开错峰 70ms
+            // + 0.86 长到 1（OutBack）+ 拆分迸开错峰 70ms。
+            // v80：窗口还没开始装卡飞行（发布先于最小化 ~120ms＝收编快照
+            // 等待）时挂起起摆——按注册时刻起摆＝卡先于窗口出现在槽位
+            //（"点桌面时最底下先冒卡再放收编动画"）。帧钟里等
+            // isMinimized/最小化动画出现才同拍起摆（见 prePaintScreen）。
             card->alpha = 0.0;
             card->alphaFrom = 0.0;
             card->alphaTo = 1.0;
-            card->fadeTl = TimeLine(card->enterInstant
-                ? card->animMs : card->enterMs);
-            card->fadeAnimating = true;
+            if (!w->isMinimized() && !m_animations.contains(w)) {
+                card->enterHold = true;
+            } else {
+                card->fadeTl = TimeLine(card->enterInstant
+                    ? card->animMs : card->enterMs);
+                card->fadeAnimating = true;
+            }
             if (card->enterInstant) {
                 // 收编落卡（老 QML enterInstant 语义）：**只淡入**，时长=
                 // 窗口飞行时长（420ms 同拍收束）——窗口飞向槽位的全程卡在
@@ -1458,6 +1485,7 @@ bool StageAnimEffect::expireAbsentLiveCards()
                                      << "ms wanted=" << m_liveWanted.size();
             detachLiveCard(card);
             card.dying = true;
+            card.enterHold = false; // 保持卡被踢：回状态机走完淡出→SWEEP
             card.fadeAnimating = false; // 由状态机接管起淡（一次性）
             card.hoverAnimating = false;
             changed = true;
