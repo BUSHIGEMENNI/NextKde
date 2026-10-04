@@ -284,27 +284,6 @@ QtObject {
             && left.height === right.height;
     }
 
-    function _setRow(row, record) {
-        const values = {
-            windowId: record.windowId,
-            desktopId: record.identity.desktopId,
-            appId: record.identity.desktopId,
-            rawAppId: record.identity.rawAppId,
-            title: record.title,
-            icon: record.iconSource,
-            pid: record.pid,
-            isActivated: record.toplevel.activated || false,
-            isMinimized: record.toplevel.minimized || false,
-            isFullscreen: record.toplevel.fullscreen || false,
-            isUrgent: !!record.isUrgent,
-        };
-        const keys = Object.keys(values);
-        for (let i = 0; i < keys.length; i++) {
-            const key = keys[i];
-            if (row[key] !== values[key])
-                windowModel.setProperty(row.index, key, values[key]);
-        }
-    }
 
     function _rebuild() {
         const foreignTops = _collectToplevels();
@@ -707,16 +686,6 @@ QtObject {
             ticket: ticket || undefined });
     }
 
-    // 实时卡片停泊：收编窗静默还原后移到屏幕外（保持渲染=缩略图实时，
-    // 桌面不摊满应用）；几何复位在桥的激活路径（activate/activate-group/
-    // engage-swap）自动完成
-    function parkWindow(windowId, value) {
-        const record = windowById(windowId);
-        if (!record || record.provider !== "kwin")
-            return;
-        _sendKwinCommand({ action: "park", id: record.handleId,
-            value: value !== false });
-    }
 
     function minimizeWindow(windowId, value) {
         const record = windowById(windowId);
@@ -764,18 +733,6 @@ QtObject {
             value: value === undefined ? true : value });
     }
 
-    // 实时卡片模式的压底标记：静默还原的后台窗压到桌面底层（keepBelow），
-    // 不遮正在使用的窗口；整组激活时桥侧自动摘掉
-    function keepBelowWindow(windowId, below) {
-        const record = windowById(windowId);
-        if (!record || record.provider !== "kwin")
-            return;
-        _enqueueKwinCommand({
-            action: "keep-below",
-            id: record.handleId,
-            value: below === undefined ? true : below
-        });
-    }
 
     function closeWindow(windowId) {
         const record = windowById(windowId);
@@ -936,6 +893,12 @@ QtObject {
                     delete pending[command.id]
                     svc._thumbnailPendingByHandle = pending
                 }
+                // 传输层失败必须合成失败回执：带票根的命令（engage-swap）
+                // 的自愈全靠 commandFinished——被拒后没人发＝engaging 卡
+                // 永久隐形，直到某次模型重建顺带救回（"命令丢失自愈只修
+                // 了半条链"）
+                if (command.ticket !== undefined)
+                    svc.commandFinished(command.action, command.ticket, false)
             }
         })
     }

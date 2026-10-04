@@ -90,9 +90,12 @@ static QString stageTargetsPath()
 }
 
 // 活体卡描述文件（shell 的 StageSidebarWindow.publishLiveCards 原子写入）：
-//   { "at": <ms>, "cards": [ { id, x, y, w, h, angle, yOff, focal, radius } ] }
-// id = 卡片代表窗的 KWin internalId（无花括号）；x/y/w/h = 终态卡面
-//（plate，含悬停缩放）未倾斜屏幕矩形；angle 已含右侧镜像符号。
+//   { "at": <ms>, "hidden": <bool>, "cards": [ { id, winId, x, y, w, h,
+//     angle, yOff, focal, radius, …v3 卡面元数据 } ] }
+// id = 组键（稳定身份，v3）；winId = 渲染窗口（rep 窗口）的 KWin
+// internalId（无花括号）——rep 翻转时特效按它原地换窗重接。x/y/w/h =
+// 终态卡面（plate）未倾斜屏幕矩形；angle 已含右侧镜像符号。hidden =
+// 启动台等覆盖层期（QML 窗体已隐）：卡保持注册、绘制/投喂暂停。
 static QString stageLivePath()
 {
     const QString stateHome = qEnvironmentVariable("XDG_STATE_HOME",
@@ -184,7 +187,7 @@ StageAnimEffect::StageAnimEffect()
         slotWindowAdded(w);
 
     // ── 活体卡输入通道：目录 + 文件双 watch（JsonConfigStore 原子重写
-    // 会换 inode 拆掉文件 watch，目录 watch 兜住创建/替换）。30ms 去抖
+    // 会换 inode 拆掉文件 watch，目录 watch 兜住创建/替换）。4ms 去抖
     // 折叠 shell 的发布连发。10s 周期 reload 兜 missed events + 文件里
     // 有但窗口还没出现的 pending 重试（windowAdded 也触发）。
     m_livePath = stageLivePath();
@@ -230,8 +233,13 @@ StageAnimEffect::StageAnimEffect()
         ++m_liveFeedTick;
         const qint64 feedNow = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
+        // hidden（启动台等覆盖层期）不投喂不重拍：卡列不可见，喂帧纯浪费
+        if (m_liveHidden)
+            return;
         for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
             LiveCard &card = **it;
+            if (card.dying)
+                continue; // 退场卡已撤源，framePainted 多为 no-op，白跑窗口查找
             const bool active = card.lastDamageMs > 0
                 && feedNow - card.lastDamageMs < 800;
             const bool priority = card.hovered || card.dragging
@@ -355,7 +363,11 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
     // 静止矩形（与 QML 输入区同界）+ 悬停中放宽到放大矩形（QML 缩放
     // MouseArea 的语义等价，防边缘闪烁）。曲线对齐 QML：scale OutBack
     // overshoot 1.2、tilt OutCubic。
-    if (!m_liveCards.isEmpty()) {
+    if (!m_liveCards.isEmpty() && presentTime != m_lastLiveAdvance) {
+        // 多输出防双喂：prePaintScreen 每屏各调一次，同一帧的两个
+        // presentTime 会让补间时间线 advance 两遍（动画约 2 倍速）。
+        // 命中判定幂等，跳过无副作用
+        m_lastLiveAdvance = presentTime;
         const QPointF cur = effects->cursorPos();
         // 拖拽期全员免悬停（老体系语义：拖拽中无 hover 放大/倾斜——候选
         // 预示由 dropHover/dwellHint 武装态视觉承担）
@@ -460,9 +472,26 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
                 const qreal t = qBound(0.0, card.fadeTl.value(), 1.0);
                 const qreal cubic = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
                 card.alpha = card.alphaFrom + (card.alphaTo - card.alphaFrom) * cubic;
-                if (card.fadeTl.done())
+                if (card.fadeTl.done()) {
                     card.fadeAnimating = false;
+                    // 终点快照：浮点插值 1 ulp 差会让 != aTo 判定多跑
+                    // 一整轮补间（每轮重新基线化，1-2 轮才收敛）
+                    card.alpha = card.alphaTo;
+                }
                 anyAnim = true;
+            }
+        }
+        if (anyAnim) {
+            // 动画卡区域并集重绘（全屏 addRepaintFull 在本机 GPU 是掉帧
+            // 大头——卡列只占屏幕一角）。⚠️ 必须在清扫**之前**算——order
+            // 里是裸指针，清扫 release 后再解引用＝UAF（每次退场必触发）
+            for (LiveCard *cp2 : order) {
+                const LiveCard &c2 = *cp2;
+                const QRectF r(c2.target.rect.topLeft(),
+                               QSizeF(c2.target.rect.width() * c2.hoverScale,
+                                      c2.target.rect.height() * c2.hoverScale));
+                // 横向余量 ≥ 入场侧滑 ±70（不够＝侧滑帧背景动态时残影）
+                effects->addRepaint(r.adjusted(-75, -30, 75, 30).toAlignedRect());
             }
         }
         // 退场收尾：dying 卡淡透（统一状态机推进）即释放。不再有独立
@@ -475,7 +504,7 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
                 deadDone.append(it.key());
         }
         for (const QString &id : deadDone) {
-            qCWarning(STAGEANIM_LOG) << "live SWEEP released" << id.left(8);
+            qCInfo(STAGEANIM_LOG) << "live SWEEP released" << id.left(8);
             releaseLiveCard(*m_liveCards[id]);
             m_liveCards.remove(id);
         }
@@ -483,17 +512,6 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
             // 清扫后回执同步：QML 侧 _liveActiveIds 据此判定让位/回退，
             // 残留已释放 id 会让对应槽位多隐藏一拍
             writeLiveStatus();
-        }
-        if (anyAnim) {
-            // 动画卡区域并集重绘（全屏 addRepaintFull 在本机 GPU 是掉帧
-            // 大头——卡列只占屏幕一角）
-            for (LiveCard *cp2 : order) {
-                const LiveCard &c2 = *cp2;
-                const QRectF r(c2.target.rect.topLeft(),
-                               QSizeF(c2.target.rect.width() * c2.hoverScale,
-                                      c2.target.rect.height() * c2.hoverScale));
-                effects->addRepaint(r.adjusted(-30, -30, 30, 30).toAlignedRect());
-            }
         }
     }
 
@@ -511,7 +529,7 @@ void StageAnimEffect::paintScreen(const RenderTarget &renderTarget, const Render
 {
     static quint32 s_psCalls = 0;
     if (++s_psCalls % 18000 == 1)
-        qCWarning(STAGEANIM_LOG) << "live paintScreen called #" << s_psCalls
+        qCInfo(STAGEANIM_LOG) << "live paintScreen called #" << s_psCalls
                                  << "cards=" << m_liveCards.size()
                                  << "anims=" << m_animations.size();
     effects->paintScreen(renderTarget, viewport, mask, deviceRegion, screen);
@@ -523,6 +541,10 @@ void StageAnimEffect::paintScreen(const RenderTarget &renderTarget, const Render
     if (m_liveCards.isEmpty())
         return;
     if (effects->activeFullScreenEffect())
+        return;
+    // hidden（启动台等覆盖层打开，QML 窗体已隐）：后置通道画在一切窗之
+    // 上，不暂停＝活体卡悬浮在启动台内容之上。卡保持注册（回来零重入场）
+    if (m_liveHidden)
         return;
     drawLiveCards(renderTarget, viewport);
 }
@@ -611,10 +633,9 @@ void StageAnimEffect::apply(EffectWindow *w, int mask, WindowPaintData &data, Wi
                                   kGlobalMinScale, kGlobalMaxScale);
         } else {
             QPoint pt = cursorPos().toPoint();
-            const QRect extG = geo;
-            if (extG.contains(pt)) {
-                const int d[4] = {pt.x() - extG.x(), extG.right() - pt.x(),
-                                  pt.y() - extG.y(), extG.bottom() - pt.y()};
+            if (geo.contains(pt)) {
+                const int d[4] = {pt.x() - geo.x(), geo.right() - pt.x(),
+                                  pt.y() - geo.y(), geo.bottom() - pt.y()};
                 int di = d[0];
                 int which = 0;
                 for (int i = 1; i < 4; ++i) {
@@ -625,21 +646,21 @@ void StageAnimEffect::apply(EffectWindow *w, int mask, WindowPaintData &data, Wi
                 }
                 switch (which) {
                 case 0:
-                    pt.setX(extG.x());
+                    pt.setX(geo.x());
                     break;
                 case 1:
-                    pt.setX(extG.right());
+                    pt.setX(geo.right());
                     break;
                 case 2:
-                    pt.setY(extG.y());
+                    pt.setY(geo.y());
                     break;
                 default:
-                    pt.setY(extG.bottom());
+                    pt.setY(geo.bottom());
                     break;
                 }
             } else {
-                pt.setX(std::clamp(pt.x(), extG.x(), extG.right()));
-                pt.setY(std::clamp(pt.y(), extG.y(), extG.bottom()));
+                pt.setX(std::clamp(pt.x(), geo.x(), geo.right()));
+                pt.setY(std::clamp(pt.y(), geo.y(), geo.bottom()));
             }
             target = QRect(pt, QSize(0, 0));
         }
@@ -738,9 +759,13 @@ void StageAnimEffect::slotWindowDeleted(EffectWindow *w)
     m_animations.remove(w);
     m_connected.remove(w);
 
-    // 活体卡生命周期：卡片窗口死亡 → 撤引用并除名
+    // 活体卡生命周期：卡片窗口死亡 → 撤引用并除名。dying 卡例外——让
+    // 统一状态机用冻结纹理走完淡出（立即释放＝淡出截断成瞬消 pop）；它
+    // 会在 alpha 到 0 后被正常清扫（card.window 已空，release 的守卫安全）
     QList<QString> dead;
     for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
+        if ((*it)->dying)
+            continue;
         if ((*it)->window == w || (*it)->window.isNull()) {
             releaseLiveCard(**it);
             dead.append(it.key());
@@ -832,7 +857,6 @@ struct CardMeta
     int count = 1;
     qreal z = 0;
     bool dragging = false, engaging = false, dropHover = false, dwellHint = false;
-    qreal grabDX = 0, grabDY = 0; // 拖拽抓取偏移（光标 - 卡原点）
     qreal hoverScale = 1.18, hoverTiltDeg = 0;
     std::chrono::milliseconds hoverMs{240};
     qreal fanSpacing = 6, tintAlpha = 0.55, borderAlpha = 0.28;
@@ -863,12 +887,10 @@ static void applyCardMeta(LiveCard &card, const CardMeta &m)
     card.count = m.count;
     card.z = m.z;
     card.dragging = m.dragging;
-    card.grabDX = m.grabDX;
-    card.grabDY = m.grabDY;
     card.engaging = m.engaging;
     card.dropHover = m.dropHover;
     card.dwellHint = m.dwellHint;
-    card.hoverScale = m.hoverScale > 1.01 ? m.hoverScale : 1.18;
+    card.hoverScale = m.hoverScale;
     card.hoverTiltDeg = m.hoverTiltDeg;
     card.hoverMs = m.hoverMs;
     card.fanSpacing = m.fanSpacing;
@@ -895,8 +917,7 @@ static void applyCardMeta(LiveCard &card, const CardMeta &m)
     card.animMs = m.animMs;
     card.dragScale = m.dragScale > 1.001 ? m.dragScale : 1.0;
     card.cardGlow = m.cardGlow;
-    if (card.enterInstant != m.enterInstant)
-        card.enterInstant = m.enterInstant;
+    card.enterInstant = m.enterInstant;
 }
 
 // 铭牌（标题 + 关闭钮，QML cardHeader 同版式 ×2 超采样）光栅进纹理。
@@ -911,8 +932,7 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
         + QString::number(w) + QLatin1Char('x') + QString::number(h)
         + QLatin1Char(card.closeHot ? '!' : '.')
         + QLatin1Char(card.merged ? 'M' : 'm')
-        + QLatin1Char(card.showCardTitle ? 'T' : 't')
-        + QLatin1Char('|') + QString::number(int(card.cardGlow * 100));
+        + QLatin1Char(card.showCardTitle ? 'T' : 't');
     const QString ovKey = card.iconsJson + QLatin1Char('|')
         + QString::number(card.count) + QLatin1Char('|')
         + QString::number(w) + QLatin1Char('x') + QString::number(h)
@@ -1033,9 +1053,7 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
     }
     op.end();
     card.overlayTex = upload(ov.mirrored(false, true));
-
-    // 辉光光栅已撤（v57 撤 pass，v60 删死代码；再启用需重做投影对齐）
-    card.glowTex.reset();
+    // 辉光 pass 已撤（v57；再启用需重做投影对齐与键位重光栅联动）
 }
 
 void StageAnimEffect::reloadLiveCards()
@@ -1043,6 +1061,7 @@ void StageAnimEffect::reloadLiveCards()
     QSet<QString> wanted;
     QVector<std::tuple<QString, LiveCardPose, CardMeta>> entries;
     QFile f(m_livePath);
+    const bool fileMissing = !QFileInfo::exists(m_livePath);
     if (f.open(QIODevice::ReadOnly)) {
         const auto doc = QJsonDocument::fromJson(f.readAll());
         // 撕裂/半写 → 保持现状直接返回（裸写无原子保证；掉卡只走空表/
@@ -1050,6 +1069,9 @@ void StageAnimEffect::reloadLiveCards()
         // 解析块，落入空 wanted＝600ms 后全体掉卡（与注释承诺相反）
         if (doc.isNull())
             return;
+        // 顶层 hidden 旗标（启动台等全屏覆盖层打开时 QML 窗体隐藏）：卡
+        // 保持注册（回来不重入场），绘制/投喂整体暂停
+        m_liveHidden = doc.object().value(QStringLiteral("hidden")).toBool();
         {
             const auto obj = doc.object();
             const auto arr = obj.value(QStringLiteral("cards")).toArray();
@@ -1075,23 +1097,26 @@ void StageAnimEffect::reloadLiveCards()
                 meta.count = std::max(1, o.value(QStringLiteral("count")).toInt(1));
                 meta.z = o.value(QStringLiteral("z")).toDouble();
                 meta.dragging = o.value(QStringLiteral("dragging")).toBool();
-                meta.grabDX = o.value(QStringLiteral("grabDX")).toDouble();
-                meta.grabDY = o.value(QStringLiteral("grabDY")).toDouble();
                 meta.engaging = o.value(QStringLiteral("engaging")).toBool();
                 meta.dropHover = o.value(QStringLiteral("dropHover")).toBool();
                 meta.dwellHint = o.value(QStringLiteral("dwellHint")).toBool();
-                meta.hoverScale = o.value(QStringLiteral("hoverScale")).toDouble(1.18);
+                // 缺省值全部对齐 StageConfigService._schema 的 def（漂移＝
+                // 发布端漏字段/改名时静默落到另一套视觉）。⚠️ 不再做
+                // hoverScale≤1.01 强制 1.18 的边界改写——用户设 1.0 关放大
+                // 是合法配置，改写会造成 QML/特效观感分裂
+                meta.hoverScale = qBound(1.0,
+                    o.value(QStringLiteral("hoverScale")).toDouble(1.05), 2.0);
                 meta.hoverTiltDeg = o.value(QStringLiteral("hoverTilt")).toDouble(0.0);
                 meta.hoverMs = std::chrono::milliseconds(
-                    std::max(80, o.value(QStringLiteral("hoverMs")).toInt(240)));
-                meta.fanSpacing = o.value(QStringLiteral("fanSpacing")).toDouble(6.0);
+                    std::max(80, o.value(QStringLiteral("hoverMs")).toInt(280)));
+                meta.fanSpacing = o.value(QStringLiteral("fanSpacing")).toDouble(8.0);
                 meta.fanHoverSpread = qBound(1.0,
                     o.value(QStringLiteral("fanHoverSpread")).toDouble(1.4), 2.0);
                 meta.winId = o.value(QStringLiteral("winId")).toString();
                 meta.tintAlpha = o.value(QStringLiteral("cardTint")).toDouble(0.55);
-                meta.borderAlpha = o.value(QStringLiteral("cardBorder")).toDouble(0.28);
-                meta.depthStrength = o.value(QStringLiteral("cardDepth")).toDouble(0.22);
-                meta.topLight = o.value(QStringLiteral("cardTopLight")).toDouble(0.10);
+                meta.borderAlpha = o.value(QStringLiteral("cardBorder")).toDouble(0.13);
+                meta.depthStrength = o.value(QStringLiteral("cardDepth")).toDouble(0.38);
+                meta.topLight = o.value(QStringLiteral("cardTopLight")).toDouble(0.07);
                 meta.fade = qBound(0.0, o.value(QStringLiteral("fade")).toDouble(1.0), 1.0);
                 meta.closeHot = o.value(QStringLiteral("closeHover")).toBool();
                 meta.selfMergeHint = o.value(QStringLiteral("selfMergeHint")).toBool();
@@ -1109,7 +1134,7 @@ void StageAnimEffect::reloadLiveCards()
                 meta.animMs = std::chrono::milliseconds(
                     std::max(120, o.value(QStringLiteral("animMs")).toInt(420)));
                 meta.dragScale = o.value(QStringLiteral("dragScale")).toDouble(1.0);
-                meta.cardGlow = o.value(QStringLiteral("cardGlow")).toDouble(0.5);
+                meta.cardGlow = o.value(QStringLiteral("cardGlow")).toDouble(0.13);
                 entries.append({id, pose, meta});
                 wanted.insert(id);
             }
@@ -1127,6 +1152,14 @@ void StageAnimEffect::reloadLiveCards()
             wanted.clear();
             entries.clear();
         }
+    }
+    // 文件在但 open 失败（权限抖动/EMFILE 等瞬时不可读）＝传输层毛病而
+    // 非发布方意图，保持现状早退——落入空 wanted 会 600ms 后全体掉卡
+    // 闪退一次（"绝不因读失败掉卡"契约，与 parse 失败同款语义）
+    if (!fileMissing && !f.isOpen()) {
+        qCWarning(STAGEANIM_LOG) << "live reload: open failed, keep state"
+                                 << m_livePath;
+        return;
     }
     if (!m_liveEnabled) {
         wanted.clear();
@@ -1213,7 +1246,7 @@ void StageAnimEffect::reloadLiveCards()
             card->lastRenderMs = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now().time_since_epoch()).count();
             changed = true;
-            qCWarning(STAGEANIM_LOG) << "live card +" << eid
+            qCInfo(STAGEANIM_LOG) << "live card +" << eid
                                      << "caption" << w->caption()
                                      << "rect" << card->target.rect
                                      << "angle" << card->target.angleDeg;
@@ -1245,7 +1278,7 @@ void StageAnimEffect::reloadLiveCards()
                     card.dpr = nw->screen() ? nw->screen()->scale() : card.dpr;
                     renderLiveTexture(card);
                     changed = true;
-                    qCWarning(STAGEANIM_LOG) << "live re-attach"
+                    qCInfo(STAGEANIM_LOG) << "live re-attach"
                                              << eid.left(12) << "win ->"
                                              << emeta.winId.left(8);
                 }
@@ -1286,7 +1319,7 @@ void StageAnimEffect::reloadLiveCards()
                     || std::abs(card.target.angleDeg - epose.angleDeg) > 2.0
                     || std::abs(card.target.yOff - epose.yOff) > 8.0;
                 if (bigMove)
-                    qCWarning(STAGEANIM_LOG) << "live pose change" << card.id.left(8)
+                    qCInfo(STAGEANIM_LOG) << "live pose change" << card.id.left(8)
                                              << card.target.rect << "->" << epose.rect
                                              << "yOff" << card.target.yOff << "->" << epose.yOff;
                 card.from = currentPose(card);
@@ -1302,12 +1335,16 @@ void StageAnimEffect::reloadLiveCards()
                 card.lastPoseChangeMs = poseNow;
                 card.ease = TimeLine(streaming
                     ? std::chrono::milliseconds(16) : card.hoverMs);
-                card.ease.setDirection(TimeLine::Forward);
                 card.easing = true;
             }
         }
     }
 
+
+    // pending 只增不减会自我维持：撤下的 id 永存 → 每个新窗口 added 都
+    // 白跑一次 reload，reload 又把死 id 重新 insert。每轮按本轮文件内容
+    // 重建（本轮仍想要但窗口未出现的条目由上面的 entries 循环重新插入）
+    m_livePending.intersect(wanted);
 
     if (changed) {
         writeLiveStatus();
@@ -1328,7 +1365,7 @@ bool StageAnimEffect::expireAbsentLiveCards()
         std::chrono::steady_clock::now().time_since_epoch()).count();
     static quint32 s_expireTick = 0;
     if (++s_expireTick % 300 == 1) // ~10s 心跳：踢除器活着与否一看便知
-        qCWarning(STAGEANIM_LOG) << "live expire tick #" << s_expireTick
+        qCInfo(STAGEANIM_LOG) << "live expire tick #" << s_expireTick
                                  << "wanted=" << m_liveWanted.size()
                                  << "cards=" << m_liveCards.size();
     bool changed = false;
@@ -1348,7 +1385,7 @@ bool StageAnimEffect::expireAbsentLiveCards()
             // 退场：撤引用/损伤连接（窗口多半已还原/关闭），dying 标记交给
             // 统一透明度状态机渐隐。发布流回心转意时同卡原地复活（见
             // reloadLiveCards 的 entries 循环）。
-            qCWarning(STAGEANIM_LOG) << "live expire DROP" << it.key().left(8)
+            qCInfo(STAGEANIM_LOG) << "live expire DROP" << it.key().left(8)
                                      << "absent" << (nowSteady - (*it)->absentSinceMs)
                                      << "ms wanted=" << m_liveWanted.size();
             detachLiveCard(card);
@@ -1388,11 +1425,17 @@ void StageAnimEffect::attachLiveCardSources(LiveCard &card)
 {
     if (!card.window || card.window.isNull() || !card.window->window())
         return;
+    // 幂等守卫：同一 reload 里"换窗重接"与"复活"可先后命中（rep 翻转×
+    // 去而复返回拍），双跑＝refOffscreenRendering 计数 +2 而 detach 只 −1
+    // ＝该窗终身多 1 个离屏引用（隐藏后客户端永久出帧），且第一条损伤
+    // 连接被覆盖泄漏（脏计数翻倍）
+    if (card.offscreenRef)
+        return;
     card.window->window()->refOffscreenRendering();
     card.offscreenRef = true;
-    qCWarning(STAGEANIM_LOG) << "live offscreen-ref ok="
-                             << card.window->window()->isOffscreenRendering()
-                             << "id" << card.id.left(8);
+    qCInfo(STAGEANIM_LOG) << "live offscreen-ref ok="
+                          << card.window->window()->isOffscreenRendering()
+                          << "id" << card.id.left(8);
     card.damageConnection = connect(
         card.window->window(), &Window::damaged, this,
         [this, id = card.id](KWin::Window *) {
@@ -1460,7 +1503,9 @@ void StageAnimEffect::releaseLiveCard(LiveCard &card)
 void StageAnimEffect::renderLiveTexture(LiveCard &card)
 {
     EffectWindow *w = card.window;
-    if (!w)
+    // windowItem 守卫收口在本体：注册/重接/预算调度三个调用点防护不一
+    // 致（窗口在但场景项未建时裸 renderItem＝空指针进渲染器）
+    if (!w || !w->windowItem())
         return;
     // FBO 尺寸按静止矩形分配（悬停放大期间姿态矩形逐帧变，跟着分配
     // 会每帧 realloc；纹理按归一化采样，绘制侧拉伸即可）
@@ -1536,7 +1581,7 @@ void StageAnimEffect::renderLiveTexture(LiveCard &card)
         // 造成双 pop 弹穿帧缓冲栈 = 嵌套崩溃真凶（2026-10-04 定位）
         glReadPixels(tw / 2, th / 2, 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, px);
         glReadPixels(int(tw * 0.15), int(th * 0.97), 1, 1, GL_RGBA, GL_UNSIGNED_BYTE, tl);
-        qCWarning(STAGEANIM_LOG) << "live tex #" << card.renderCount
+        qCInfo(STAGEANIM_LOG) << "live tex #" << card.renderCount
                                  << "id" << card.id.left(8)
                                  << "center=" << px[0] << px[1] << px[2] << px[3]
                                  << "top=" << tl[0] << tl[1] << tl[2] << tl[3]
@@ -1602,6 +1647,9 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
 
     const qreal dpr = viewport.scale();
     const GLboolean blendWas = glIsEnabled(GL_BLEND);
+    GLint blendSrcWas = GL_ONE, blendDstWas = GL_ONE_MINUS_SRC_ALPHA;
+    glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcWas);
+    glGetIntegerv(GL_BLEND_DST_RGB, &blendDstWas);
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     glActiveTexture(GL_TEXTURE0);
@@ -1691,10 +1739,15 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
             pose.angleDeg = 0.0;
         } else if (card.spawnAtMs > 0 && card.hoverAnimating) {
             // 入场侧滑：从屏侧 ±70 滑进（OutCubic，与 QML x Behavior 同拍；
-            // spawn 淡入/长大共用 hoverTl）
+            // spawn 淡入/长大共用 hoverTl）。⚠️ 缩放必须在此分支同乘——
+            // 只 translate 不乘 curScale 的话 0.86→1 长大是死动画（全尺寸
+            // 滑入、结束瞬跳）
             const qreal t = qBound(0.0, card.hoverTl.value(), 1.0);
             const qreal cubic = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
             const qreal slide = card.spawnSlide * (1.0 - cubic);
+            pose.rect = QRectF(pose.rect.topLeft(),
+                QSizeF(pose.rect.width() * card.curScale,
+                       pose.rect.height() * card.curScale));
             pose.rect.translate(slide, 0.0);
         } else {
             pose.rect = QRectF(pose.rect.topLeft(),
@@ -1735,7 +1788,7 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         const qreal ix = c.x() - halfW, iy = c.y() - halfH;
         const qreal iw = halfW * 2, ih = halfH * 2;
 
-        rasterChrome(card); // 键变重绘（非绘制时机以外的光栅+上传）
+        rasterChrome(card); // 绘制时机内执行；键（标题/计数/尺寸/态位）变才重光栅+上传
 
         // 武装态视觉（老 QML 两档完整迁移）：
         //   armed（dropHover/selfMerge）= 亮蓝 rgba(0.45,0.85,1.0,0.95) + 2px + 提亮
@@ -1828,7 +1881,7 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
             glReadPixels(int(pose.rect.center().x() * dpr),
                          int(devH - pose.rect.center().y() * dpr),
                          1, 1, GL_RGBA, GL_UNSIGNED_BYTE, sp);
-            qCWarning(STAGEANIM_LOG) << "live QUAD" << card.id.left(8)
+            qCInfo(STAGEANIM_LOG) << "live QUAD" << card.id.left(8)
                                      << "screen-px rgba =" << sp[0] << sp[1]
                                      << sp[2] << sp[3] << "damage" << card.damageCount;
         }
@@ -1837,9 +1890,12 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         glEnable(GL_SCISSOR_TEST);
     if (!blendWas)
         glDisable(GL_BLEND);
+    // blendFunc 精确还原（本 pass 改成预乘 ONE/ONE_MINUS_SRC_ALPHA——
+    // 猜默认值不如查询，上游若依赖进入前的 func 即翻车）
+    glBlendFunc(blendSrcWas, blendDstWas);
     static quint32 s_pass = 0;
     if (++s_pass % 3000 == 1)
-        qCWarning(STAGEANIM_LOG) << "live paint pass #" << s_pass
+        qCInfo(STAGEANIM_LOG) << "live paint pass #" << s_pass
                                  << "paintable =" << paintable;
 }
 

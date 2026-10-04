@@ -30,6 +30,9 @@ Item {
     id: card
 
     required property string appKey
+    // 合并动画窗内被吞卡的组键（非动画窗为 ""）：交棒淡出期间 rep 翻转
+    // 不得复位 engaging（打断淡出＝闪回一帧）
+    property string mergeAnimFromKey: ""
     required property string targetId // 代表窗口（缩略图与激活目标）
     required property int pid
     required property string appName
@@ -123,7 +126,12 @@ Item {
     // 同组换代表（点同应用的另一扇窗）时模型行不销毁，engaging 不会随
     // delegate 重建归零——必须在此显式交还卡片姿态，否则卡片永远停在
     // 透明态，看起来就是"卡片消失了"
-    onTargetIdChanged: engaging = false
+    // 同组代表窗翻转时交还姿态（防"换代表卡复活"），但**排除合并动画窗**
+    // ——被吞卡的 engaging 是 _endCardDrag 交棒淡出的核心，动画窗内 rep
+    // 翻转（最小化顺序变化换 pickRepresentative）会把淡出中途打断＝卡
+    // 闪回一帧再被模型合并掉
+    onTargetIdChanged: if (mergeAnimFromKey !== appKey)
+        engaging = false
     // 合成器活体卡让位标记：特效回执（stage-live.json.status）确认正在
     // 直绘这张卡 → 缩略图 Image 透明让出卡面（opacity 而非 visible——
     // plane 不可见子树吞 visible 改动，opacity 链实测有效）
@@ -155,7 +163,7 @@ Item {
     function plateOrigin(): var {
         return plate.mapToItem(null, 0, 0)
     }
-    function liveCardPose(hovered): var {
+    function liveCardPose(): var {
         const sc = parent && parent.slotScale !== undefined
             ? parent.slotScale : 1.0
         // ⚠️ mapToItem 实测（plate 是 plane 的子项，坐标手工加会偏 (74,115)）

@@ -221,6 +221,10 @@ QtObject {
         if (v === null)
             return JSON.stringify({ ok: false, error: "invalid value for " + key })
         svc[key] = v
+        // _load 未完成期间的 set 记账：回调不得用旧持久值回滚这些键
+        // （set 已 _save 落盘，回滚＝内存/文件漂移直到下次 set）
+        if (_loadPending)
+            _pendingSetKeys[key] = true
         revision++
         if (key === "animDuration" || key === "animEasing"
                 || key === "tiltAngle" || key === "glassOpacity"
@@ -297,14 +301,17 @@ QtObject {
         JsonConfigStore.writePath(configPath, JSON.stringify(out))
     }
 
+    property bool _loadPending: true   // Component.onCompleted 里 _load 后置 false
+    property var _pendingSetKeys: ({})
     function _load() {
         JsonConfigStore.readPath(configPath, function(data, exists) {
+            _loadPending = false
             if (!exists)
                 return
             try {
                 const obj = JSON.parse(data)
                 for (const k in _schema) {
-                    if (obj[k] === undefined)
+                    if (obj[k] === undefined || _pendingSetKeys[k])
                         continue
                     const v = _coerce(_schema[k], obj[k])
                     if (v === null)
@@ -315,7 +322,12 @@ QtObject {
                 console.warn("[StageConfig] bad config, keep defaults: " + e)
                 return
             }
-            // 启动对齐：把持久值投影到 kwinrc（覆盖 CLI 的临时试验值）
+            _pendingSetKeys = ({})
+            // 启动对齐：把持久值投影到 kwinrc（覆盖 CLI 的临时试验值）。
+            // revision 自增：onRevisionChanged 消费方（重排/重发布）在启动
+            // 加载时也要跑一遍——不 bump＝side=right 用户首帧按默认 left
+            // 渲染一闪再跳右
+            revision++
             _pushEffectConfig()
             console.info("[StageConfig] loaded revision=" + revision)
         })

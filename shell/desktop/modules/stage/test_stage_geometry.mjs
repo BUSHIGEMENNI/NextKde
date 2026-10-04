@@ -226,4 +226,14 @@ check("tilt: near/far edges split vertically off-horizon",
         left["h9"].x + 1920 - 280);
 }
 
+// ── 边界补齐（审查挂账"4 缺"）──
+check("adaptive NaN/0 availH → 钳位不 NaN",
+    Number.isFinite(adaptiveLayout(0, 4).scale), true);
+check("adaptive NaN availH → 钳位不 NaN",
+    Number.isFinite(adaptiveLayout(NaN, 3).scale), true);
+check("scrollLayout count=0 → 空位形不抛",
+    JSON.stringify(scrollLayout(600, 0)), JSON.stringify(scrollLayout(600, 0)));
+check("tiltUnproject denom<1 → null 不抛",
+    tiltUnproject(0, 0, Math.PI / 2, 900, 0), null);
+
 console.log(`stage-geometry: ${cases.length} checks passed`);

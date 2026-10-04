@@ -196,6 +196,17 @@ check("commit: mixed batch — first due, second pending",
         ["x", "b"], t0 + 100),
     { order: ["x", "b"],
         swaps: [{ clicked: "b", demoted: "y", at: t0 + 10 }] });
+check("commit: clicked still in sidebar → premature, kept",
+    commitDueSwaps(["chrome", "zcode"],
+        [{ clicked: "chrome", demoted: "kate", at: t0 }],
+        ["chrome", "kate", "zcode"], t0 + 500),
+    { order: ["chrome", "zcode"],
+        swaps: [{ clicked: "chrome", demoted: "kate", at: t0 }] });
+check("commit: clicked === demoted edge → kept (never premature)",
+    commitDueSwaps(["a"],
+        [{ clicked: "a", demoted: "a", at: t0 }],
+        ["a"], t0 + 100),
+    { order: ["a"], swaps: [{ clicked: "a", demoted: "a", at: t0 }] });
 check("commit: rapid alternation — both due, sequential commits",
     commitDueSwaps(["a", "b"],
         [{ clicked: "a", demoted: "x", at: t0 },

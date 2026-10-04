@@ -209,12 +209,18 @@ export const SWAP_COMMIT_TTL_MS = 2000
 // 提交到期的换位（纯核，由 syncCards 每次对账调用）：demoted 已到场
 // （arrivedKeys 含它）的换位逐个转正进 order；未到场的按 TTL 保留，
 // 超时的作废。返回 { order, swaps } 由调用方写回。
+// 换位提交门。到场判据＝**双向**：退位键回到 sideGroups 且被点键已
+// 离开（被点组激活后应成为活动组离栏）。只看退位键会被"从未离场的
+// 最小化兄弟窗"提前满足（excludeKeepMinimized 下该组常驻 sideGroups）
+// ——提交提前一拍＝被点卡先滑到列尾再消失的换位抽动。
 export function commitDueSwaps(order, swaps, arrivedKeys, now) {
     let next = order
     const kept = []
     for (let i = 0; i < swaps.length; i++) {
         const swap = swaps[i]
-        if (arrivedKeys.indexOf(swap.demoted) >= 0)
+        const demotedArrived = arrivedKeys.indexOf(swap.demoted) >= 0
+        const clickedGone = arrivedKeys.indexOf(swap.clicked) < 0
+        if (demotedArrived && clickedGone)
             next = applySwapOrder(next, swap.clicked, swap.demoted)
         else if (now - swap.at < SWAP_COMMIT_TTL_MS)
             kept.push(swap)

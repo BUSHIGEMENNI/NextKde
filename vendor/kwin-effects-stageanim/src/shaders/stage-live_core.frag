@@ -18,7 +18,7 @@ uniform vec2 camRel;    // 相机在 item 坐标系：x = item 中心（= 卡中
 uniform vec2 itemSize;  // 本覆盖矩形设备像素尺寸
 uniform vec2 cardSize;  // 卡面设备像素尺寸
 uniform float crad;
-uniform float alpha;     // 圆角半径（设备像素）
+uniform float alpha;     // 整卡透明度
 
 in vec2 uv;
 out vec4 fragColor;

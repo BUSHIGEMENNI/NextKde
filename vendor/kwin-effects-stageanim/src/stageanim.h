@@ -93,7 +93,6 @@ struct LiveCard
     QColor border{255, 255, 255, 71};
     qreal hoverScale = 1.18;
     qreal hoverTiltDeg = 0;       // 悬停终态倾角（已含右条镜像符号）
-    qreal grabDX = 0, grabDY = 0; // 拖拽抓取偏移
     // v52 视觉补全（老 QML 行为迁移）
     bool selfMergeHint = false;
     bool rightSide = false;
@@ -111,7 +110,6 @@ struct LiveCard
     qreal hoverBlend = 0.0;    // 悬停态混合量（边框蓝/深度淡出/顶光×2/辉光）
     qreal spawnSlide = 0.0;    // 入场 x 侧滑起点（±70）
     qint64 spawnAtMs = 0;      // 入场起表时刻（迸开错峰 +70ms/张）
-    qint64 spawnDelayMs = 0;
     std::chrono::milliseconds hoverMs{240};
     qreal fanSpacing = 6;
     qreal fanHoverSpread = 1.4; // 悬停/武装时扇叠间距扩散系数（可调）
@@ -136,7 +134,6 @@ struct LiveCard
     // 铭牌（标题/关闭钮，QPainter 光栅 → 纹理；键变才重绘，Y 镜像匹配
     // stage-live 的 FBO 朝向采样）
     std::unique_ptr<GLTexture> chromeTex;
-    std::unique_ptr<GLTexture> glowTex; // 悬停辉光（外扩 24 逻辑 pad）
     std::unique_ptr<GLTexture> overlayTex; // 正视覆盖层（图标排/拆分芯片）
     QString chromeKey;
     QString overlayKey;
@@ -210,8 +207,10 @@ private:
     QString m_liveStatusPath;
     QFileSystemWatcher *m_liveWatcher = nullptr;
     QTimer m_liveStatusTimer;   // 周期刷 status 文件（shell 据此让位快照）
-    QTimer m_liveStaleTimer;    // 心跳超时 → 撤引用（shell 死亡防挂死）
+    QTimer m_liveStaleTimer;    // 10s 周期 reload 兜底（真正的心跳超时判定在 reload 内按 mtime 25s）
     QTimer m_liveFrameTimer;    // 自驱帧回调投喂（30Hz framePainted）
+    std::chrono::milliseconds m_lastLiveAdvance{-1}; // 多输出同帧去重（状态机只推进一次）
+    bool m_liveHidden = false;  // 发布顶层 hidden（启动台等覆盖层期）：保持注册、暂停绘制/投喂
     QHash<QString, QSharedPointer<LiveCard>> m_liveCards; // 含 dying 退场卡（统一绘制管线）
     QSet<QString> m_liveWanted; // 最近一次发布在册的 id（缺席踢除的对照基准）
     QSet<QString> m_livePending; // 文件里有、窗口还没出现（等 windowAdded）
