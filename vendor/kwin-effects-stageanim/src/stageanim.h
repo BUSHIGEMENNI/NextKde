@@ -56,6 +56,9 @@ struct LiveCardPose
 struct LiveCard
 {
     QString id;
+    // 渲染窗（rep）id 字符串：发布流携带，用于 EffectWindow 连接建立前
+    // 的匹配（收编飞行窗活体跟踪——窗口最小化早于卡窗连接 ~50ms）
+    QString winId;
     QPointer<EffectWindow> window;
     LiveCardPose target;  // 最新发布的终态
     LiveCardPose from;    // 缓动起点

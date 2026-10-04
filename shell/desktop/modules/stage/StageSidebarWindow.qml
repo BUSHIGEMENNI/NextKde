@@ -43,8 +43,9 @@ PanelWindow {
     property bool open: false
 
     // 启动台打开时整窗隐藏：全屏浮层若留在原位会盖在启动台内容上
-    //（旧窄条不重叠所以无所谓，全屏必须躲）
-    visible: open && !AppLauncherService.open
+    //（旧窄条不重叠所以无所谓，全屏必须躲）。贴缘拉出（peek）时窗体
+    // 恢复可见——收起的卡列要能接收 hover/点击输入
+    visible: open && (!AppLauncherService.open || root._drawerPeek)
     color: "transparent"
     // 常驻侧（stage-config side）：right 时卡片列锚屏幕右缘（内容层
     // 各自镜像：StageCard/深度渐变/图标排）；窗体本身恒全屏
@@ -1022,8 +1023,9 @@ PanelWindow {
         // 心跳另一半）。真变化（动画重定向）写平台 IPC（异步，实测扛 60Hz）。
         // 比较用显式 {cards,hidden} 构造（at 只存在于写入版）——不依赖
         // "at 是首键/卡字段不叫 at"的隐式正则约定
-        // 启动台打开（root.visible=false）时照常发布——实时卡保留在屏
-        //（用户定稿：不突兀消失）；QML 窗体隐藏只是输入壳退场
+        // 启动台打开时照常发布——卡列经 drawerRetracted 滑出屏（260ms
+        // 抽屉动画逐帧发布＝"刷一下收起"，老代码语义回归；此前"保留在
+        // 屏"的定稿已被用户推翻），贴缘 peek 拉出时姿态同样实时
         const body = { cards: out }
         const json = JSON.stringify({ at: Date.now(), cards: out })
         const payloadChanged = JSON.stringify(body) !== root._lastLiveBody
@@ -2296,7 +2298,8 @@ PanelWindow {
     property real _retractPx: 0        // 0=展开；收起时动画到 _retractFull
     readonly property real _retractFull: root.panelW + StageGeo.GLOW_PAD * 2
     readonly property bool drawerRetracted:
-        (root.desktopFullscreen || root._stripYield) && !root._drawerPeek
+        (root.desktopFullscreen || root._stripYield || AppLauncherService.open)
+        && !root._drawerPeek
     Behavior on _retractPx {
         NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
     }
@@ -2312,10 +2315,11 @@ PanelWindow {
     }
     property Timer _drawerPeekTimer: Timer {
         interval: 120
-        // 全屏与侵占让位同权：两种收起都要能贴缘拉出（当初只认全屏，
-        // 让位收起后贴缘无反应）
+        // 全屏、侵占让位、启动台三种收起同权：都要能贴缘拉出（当初只认
+        // 全屏，让位收起后贴缘无反应）
         onTriggered: {
-            if (root.desktopFullscreen || root._stripYield)
+            if (root.desktopFullscreen || root._stripYield
+                    || AppLauncherService.open)
                 root._drawerPeek = true
         }
     }

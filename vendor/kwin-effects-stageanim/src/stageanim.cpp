@@ -641,12 +641,37 @@ void StageAnimEffect::apply(EffectWindow *w, int mask, WindowPaintData &data, Wi
     // 目标矩形与终态缩放比例
     QRectF target;
     qreal endScale = 0.15;
-    const bool haveTarget = (*animationIt).endScale > 0
-        && (*animationIt).target.isValid();
-    if (haveTarget) {
+    bool haveTarget = false;
+    // 活体卡跟踪（v79）：飞行目标逐帧取发布流里该窗当前卡面矩形，
+    // 不再锁死动画开始时的 targets 快照——抽屉收起（启动台/全屏/让位）
+    // 时卡片滑出屏，飞行窗随卡同向出屏（旧实现缩向回落点＝任务栏图标
+    // /光标边缘，观感"收进屏幕中心"）。匹配：卡已接上的渲染窗指针，或
+    // winId 字符串（卡刚发布、EffectWindow 连接建立前的 ~50ms 窗口期）
+    {
+        const QString selfKey = w->internalId().toString(QUuid::WithoutBraces);
+        for (auto cit = m_liveCards.constBegin(); cit != m_liveCards.constEnd(); ++cit) {
+            const LiveCard &lc = *cit.value();
+            if (lc.dying || lc.engaging || !lc.target.rect.isValid()
+                || lc.target.rect.isEmpty())
+                continue;
+            if (lc.window.data() != w && lc.winId != selfKey)
+                continue;
+            target = lc.target.rect;
+            endScale = std::clamp(
+                std::min(target.width() / std::max(1, geo.width()),
+                         target.height() / std::max(1, geo.height())),
+                kCardMinEndScale, kCardMaxEndScale);
+            haveTarget = true;
+            break;
+        }
+    }
+    if (!haveTarget && (*animationIt).endScale > 0
+        && (*animationIt).target.isValid()) {
         target = (*animationIt).target;
         endScale = (*animationIt).endScale;
-    } else {
+        haveTarget = true;
+    }
+    if (!haveTarget) {
         // 原版回落：任务栏图标几何 / 光标最近边缘
         QRect icon = w->iconGeometry().toRect();
         if (icon.isValid() && icon.width() > 0) {
@@ -906,6 +931,7 @@ struct CardMeta
 static void applyCardMeta(LiveCard &card, const CardMeta &m)
 {
     card.title = m.title;
+    card.winId = m.winId;
     card.count = m.count;
     card.z = m.z;
     card.dragging = m.dragging;
@@ -984,22 +1010,28 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
         p.setPen(QColor(255, 255, 255, 235));
         p.drawText(tr, Qt::AlignLeft | Qt::AlignVCenter, card.title);
     }
-    // 关闭钮：右上 20×20 圆 + ×（QML cardClose 同位：right margin 8）
+    // 关闭钮：右上 20×20 热区。静置=柔和暗底圆 + 白 ×（无圈线——
+    // "圆圈带叉"样式用户否决 v79；暗底保证亮内容上也不隐身），悬停=
+    // 红圆底 + 白 ×。与 QML cardClose 同款（两模式视觉统一）
     const int csize = 40; // 20 ×2
     const int cx = w * 2 - 16 - csize;
     const int cy = 8 * 2 + (48 - csize) / 2;
+    const qreal cmx = cx + csize / 2.0, cmy = cy + csize / 2.0;
     if (card.closeHot) {
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(239, 68, 68, 235));
-        p.drawEllipse(QRect(cx, cy, csize, csize));
-        p.setPen(QPen(QColor(255, 255, 255, 235), 3.0));
+        p.setBrush(QColor(239, 68, 68, 225));
+        p.drawEllipse(QPointF(cmx, cmy), 15.0, 15.0);
+        p.setPen(QPen(QColor(255, 255, 255, 245), 3.2,
+                      Qt::SolidLine, Qt::RoundCap));
     } else {
-        p.setPen(QPen(QColor(255, 255, 255, 150), 2.4));
-        p.setBrush(Qt::NoBrush);
-        p.drawEllipse(QRect(cx, cy, csize, csize));
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(10, 14, 20, 115));
+        p.drawEllipse(QPointF(cmx, cmy), 14.0, 14.0);
+        p.setPen(QPen(QColor(255, 255, 255, 210), 2.8,
+                      Qt::SolidLine, Qt::RoundCap));
     }
-    p.drawLine(cx + 13, cy + 13, cx + csize - 13, cy + csize - 13);
-    p.drawLine(cx + csize - 13, cy + 13, cx + 13, cy + csize - 13);
+    p.drawLine(QPointF(cmx - 5.5, cmy - 5.5), QPointF(cmx + 5.5, cmy + 5.5));
+    p.drawLine(QPointF(cmx + 5.5, cmy - 5.5), QPointF(cmx - 5.5, cmy + 5.5));
     p.end();
     auto upload = [](const QImage &im) {
         auto tex = GLTexture::allocate(GL_RGBA8, im.size());
@@ -1015,9 +1047,10 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
     };
     card.chromeTex = upload(img.mirrored(false, true));
 
-    // ── 覆盖层（正视、不随卡倾斜——老架构 iconRow/拆分芯片在根层，
-    //    用户定稿"图标正视，盖住卡片左下角"）：图标排（左下/右条右下）
-    //    + "+N" 溢出 + 拆分芯片（居中，merged 且点亮）──
+    // ── 覆盖层（图标排（左下/右条右下）+ "+N" 溢出 + 拆分芯片（右上，
+    //    merged 常显暗态/悬停点亮））。绘制侧随卡投影（v78 起废除
+    //    v52"正视压平"——全套特效直绘后，压平层在悬停缩放/压平动画里
+    //    表现为钉死原地不跟卡动）──
     QImage ov(w * 2, h * 2, QImage::Format_ARGB32_Premultiplied);
     ov.fill(Qt::transparent);
     QPainter op(&ov);
@@ -1938,17 +1971,12 @@ void StageAnimEffect::drawLiveCardBody(const RenderViewport &viewport,
         liveCardPass(viewport, dpr, *m_liveShader, pose, ix, iy, iw, ih,
                      QVector2D(0, 0), false, QColor(), QColor(), 0, 0, 0,
                      card.chromeTex.get(), fadeMul);
-    // 覆盖层（正视：图标排/拆分芯片）——老架构根层语义，不随卡倾斜，
-    // 画在卡面之上（"盖住左下角"）
+    // 覆盖层（图标排/拆分芯片）：随卡投影（老 v52"正视覆盖层"是 QML
+    // 双层时代的决定——全套特效直绘后，压平 angle=0 在悬停放大/压平
+    // 动画里表现为钉死原地不跟卡动＝"固定位置不随卡片运动"，用户定稿
+    // 改为跟卡：倾斜/keystone/缩放全程同步）
     if (card.overlayTex && fadeMul > 0.3) {
-        LiveCardPose opose = pose;
-        opose.angleDeg = 0;   // 正视：投影退化为恒等
-        opose.yOff = 0;
-        const qreal oix = opose.rect.left() * dpr;
-        const qreal oiy = opose.rect.top() * dpr;
-        const qreal oiw = opose.rect.width() * dpr;
-        const qreal oih = opose.rect.height() * dpr;
-        liveCardPass(viewport, dpr, *m_liveShader, opose, oix, oiy, oiw, oih,
+        liveCardPass(viewport, dpr, *m_liveShader, pose, ix, iy, iw, ih,
                      QVector2D(0, 0), false, QColor(), QColor(), 0, 0, 0,
                      card.overlayTex.get(), fadeMul);
     }

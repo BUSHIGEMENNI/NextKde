@@ -368,7 +368,9 @@ Item {
                 required property int index
                 readonly property real off: (index + 1)
                     * StageConfigService.fanSpacing
-                    * ((card.isHovered || card.dropHovered)
+                    // 触发集与特效侧 fanBlend 一致（hover/dropHover/dwellHint
+                    // 三态同权）+ 时长 150ms OutCubic——两模式动画手感统一
+                    * ((card.isHovered || card.dropHovered || card.dwellHint)
                         ? StageConfigService.fanHoverSpread : 1)
                 // 方向（用户定稿）：左上角探出；条在右时镜像到右上
                 x: card.rightSide ? plate.x + off : plate.x - off
@@ -383,8 +385,8 @@ Item {
                     StageConfigService.cardBorder * (0.8 - index * 0.18))
                 opacity: card.engaging ? 0.0 : 1.0
                 Behavior on opacity { NumberAnimation { duration: 160 } }
-                Behavior on x { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
-                Behavior on y { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+                Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+                Behavior on y { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
             }
         }
 
@@ -515,19 +517,21 @@ Item {
                 width: 20
                 height: 20
                 radius: 10
-                // 悬停高亮由根层热区驱动（本视觉树渲染进 visible:false
-                // 的透视层，层内 MouseArea 不收输入）
-                color: closeHit.containsMouse ? "#ef4444" : "transparent"
-                opacity: card.isHovered ? 1.0 : 0.0
-                Behavior on opacity { NumberAnimation { duration: 120 } }
+                // 与特效铭牌同款（v79）：静置=柔和暗底圆 + 白 ×（无圈线，
+                // "圆圈带叉"已否决；暗底保证亮内容上不隐身）、悬停红圆底
+                // + 白 ×；两模式视觉统一
+                color: closeHit.containsMouse
+                    ? "#ef4444" : Qt.rgba(0.04, 0.055, 0.08, 0.45)
 
                 Text {
                     anchors.centerIn: parent
                     text: "✕"
-                    font.pixelSize: 10
-                    color: "white"
+                    font.pixelSize: 11
+                    font.bold: true
+                    color: closeHit.containsMouse
+                        ? "white" : Qt.rgba(1, 1, 1, 0.82)
+                    Behavior on color { ColorAnimation { duration: 120 } }
                 }
-
             }
         }
 
