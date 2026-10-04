@@ -90,6 +90,7 @@ struct LiveCard
     QColor border{255, 255, 255, 71};
     qreal hoverScale = 1.18;
     qreal hoverTiltDeg = 0;       // 悬停终态倾角（已含右条镜像符号）
+    qreal grabDX = 0, grabDY = 0; // 拖拽钉光标的抓取偏移
     std::chrono::milliseconds hoverMs{240};
     qreal fanSpacing = 6;
     qreal depthStrength = 0.22;

@@ -891,15 +891,12 @@ PanelWindow {
     // 不新鲜（特效未装/挂死/已关）＝ 快照照常画，任何失败都静默退回静态。
     readonly property string _livePath: Quickshell.stateDir
         + "/fg-sched/stage-live.json"
+    // 回执（壳经平台 IPC 读，平台写沙箱在 state 根下）
+    readonly property string _liveStatusPath: Quickshell.stateDir
+        + "/fg-sched/stage-live.json.status"
     property var _liveActiveIds: ({})   // id → true（回执新鲜期内）
     property real _liveStatusAt: 0
     property bool liveChromeOwned: false // 特效已接管卡面视觉（QML 只留输入）
-    // 活体姿态流直写通道（FileView：原子写、免平台 IPC 往返）
-    property FileView _livePoseFile: FileView {
-        path: root._livePath
-        watchChanges: false
-        preload: false
-    }
 
     function scheduleLivePublish() {
         // ⚠️ 节流不是防抖：restart 式防抖在持续动画（slot Behavior 每帧
@@ -911,8 +908,10 @@ PanelWindow {
             _livePublishTimer.start()
     }
     property bool _livePublishDirty: false
+    property real dragGrabDX: 0   // 拖拽抓取偏移（特效光标钉位）
+    property real dragGrabDY: 0
     property Timer _livePublishTimer: Timer {
-        interval: 16
+        interval: 8   // 90Hz 输出：发布流 125Hz 上限 > 帧率，动画满帧
         repeat: true
         onTriggered: {
             root.publishLiveCards()
@@ -933,6 +932,8 @@ PanelWindow {
     // 不在卡片中"的元凶之一）。开合的清空发布走既有 onOpenChanged（尾部）。
     Component.onDestruction: root.publishLiveCards()
 
+    property string _lastLiveJson: ""
+    property real _lastLiveWriteAt: 0
     function publishLiveCards() {
         const cards = []
         if (StageConfigService.thumbLiveEffect && StageModeService.enabled
@@ -957,6 +958,7 @@ PanelWindow {
                     radius: p.radius,
                     title: p.title, count: p.count, z: p.z,
                     dragging: root.dragKey === slot.appKey,
+                    grabDX: root.dragGrabDX, grabDY: root.dragGrabDY,
                     engaging: engaging,
                     dropHover: slot.cardItem.dropHovered,
                     dwellHint: slot.cardItem.dwellHint,
@@ -968,9 +970,19 @@ PanelWindow {
                     cardDepth: p.cardDepth, cardTopLight: p.cardTopLight })
             }
         }
-        // FileView 直写（壳进程内、异步落盘）：动画期 16ms 一拍，走平台
-        // IPC（QSaveFile+inotify 往返三进程）曾是掉帧贡献者
-        _livePoseFile.setText(JSON.stringify({ at: Date.now(), cards: cards }))
+        // ⚠️ 载荷去重：桥事件风暴（缩略图等高频事件驱动 syncCards→
+        // layoutCards→发布）即使布局不变也会 41Hz 轰炸写通道——载荷相同
+        // 直接跳过；仅 10s 保活重写一次刷 mtime（特效 25s 陈旧判据的
+        // 心跳另一半）。真变化（动画重定向）写平台 IPC（异步，实测扛 60Hz）
+        const json = JSON.stringify({ at: Date.now(), cards: cards })
+        const payloadChanged = json.replace(/"at":-?\d+/, '"at":0')
+            !== _lastLiveJson.replace(/"at":-?\d+/, '"at":0')
+        const now = Date.now()
+        if (payloadChanged || now - root._lastLiveWriteAt > 10000) {
+            JsonConfigStore.writePath(root._livePath, json)
+            root._lastLiveJson = json
+            root._lastLiveWriteAt = now
+        }
         // 模型变化后立即对账一次让位标记（不等下一轮回执轮询）
         _applyLivePainted()
     }
@@ -981,7 +993,7 @@ PanelWindow {
         running: true
         repeat: true
         onTriggered: {
-            JsonConfigStore.readPath(root._livePath + ".status",
+            JsonConfigStore.readPath(root._liveStatusPath,
                 function(data, exists) {
                     if (!exists || !data) {
                         root._liveActiveIds = ({})
@@ -1284,7 +1296,12 @@ PanelWindow {
         root.hoveredKey = ""
         root._clearMergeGesture()
         root.dragKey = slot.appKey
-        root.publishLiveCards()   // dragging 标志即时发布（特效切跟手模式）
+        // 抓取偏移（光标 - 牌面原点，屏幕系）：特效据此把卡钉在光标上
+        //（v48 控制信道：拖拽期间零文件流量，90Hz 原生跟手）
+        const po = slot.cardItem.plateOrigin()
+        root.dragGrabDX = sceneX - po.x
+        root.dragGrabDY = sceneY - po.y
+        root.publishLiveCards()   // dragging 标志+抓取偏移即时发布
         root.dragFromIndex = index
         root.dragToIndex = index
         // 抓取偏移 = 指针列坐标 − 卡当前 x/y（保持指尖抓在按下的位置）
@@ -1382,10 +1399,6 @@ PanelWindow {
         // 布局会拖累跟手帧率
         slot.y = root.dragY
         slot.slotX = root._dragClampX(slot)
-        // 卡面视觉在特效侧（chrome 让位）：跟手矩形必须逐帧发布（16ms
-        // 合并），否则特效手里的卡停在原槽位 = "拖动没有痕迹"（图标排
-        // 是 QML 的会跟指针走，读作"卡不动图标乱飞"）
-        root.scheduleLivePublish()
         // 跟手排障遥测（真手拖动无头复现不了：事件层/掩码层只有真指针
         // 能测）：stage-config debugTrace 开启时 ~80ms 一条，读 px（指针
         // 列坐标）vs sx（实际 slotX）
@@ -1949,15 +1962,6 @@ PanelWindow {
                     NumberAnimation { duration: StageConfigService.cardEnterDuration; easing.type: Easing.OutCubic }
                 }
                 Behavior on scale { NumberAnimation { duration: StageConfigService.cardEnterDuration; easing.type: Easing.OutCubic } }
-
-                // 活体卡发布钩子：让位/重排/滚动/聚焦缩放/边缘渐隐/压暗
-                // 全部是 slot 层的 Behavior 动画——卡面视觉在特效侧，这里
-                // 不逐帧发布特效就只看到起止两帧＝动画消失（"退避没了"根因）
-                onYChanged: root.scheduleLivePublish()
-                onXChanged: root.scheduleLivePublish()
-                onScaleChanged: root.scheduleLivePublish()
-                onOpacityChanged: root.scheduleLivePublish()
-                onZChanged: root.scheduleLivePublish()
 
                 StageCard {
                     id: card

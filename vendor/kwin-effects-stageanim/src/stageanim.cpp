@@ -195,12 +195,12 @@ StageAnimEffect::StageAnimEffect()
     connect(m_liveWatcher, &QFileSystemWatcher::fileChanged, this, [this]() {
         if (!m_liveWatcher->files().contains(m_livePath))
             m_liveWatcher->addPath(m_livePath);
-        QTimer::singleShot(16, this, &StageAnimEffect::reloadLiveCards);
+        QTimer::singleShot(4, this, &StageAnimEffect::reloadLiveCards);
     });
     connect(m_liveWatcher, &QFileSystemWatcher::directoryChanged, this, [this]() {
         if (!m_liveWatcher->files().contains(m_livePath))
             m_liveWatcher->addPath(m_livePath);
-        QTimer::singleShot(16, this, &StageAnimEffect::reloadLiveCards);
+        QTimer::singleShot(4, this, &StageAnimEffect::reloadLiveCards);
     });
     m_liveStaleTimer.setInterval(10000);
     connect(&m_liveStaleTimer, &QTimer::timeout, this, &StageAnimEffect::reloadLiveCards);
@@ -765,6 +765,7 @@ struct CardMeta
     int count = 1;
     qreal z = 0;
     bool dragging = false, engaging = false, dropHover = false, dwellHint = false;
+    qreal grabDX = 0, grabDY = 0; // 拖拽抓取偏移（光标 - 卡原点）
     qreal hoverScale = 1.18, hoverTiltDeg = 0;
     std::chrono::milliseconds hoverMs{240};
     qreal fanSpacing = 6, tintAlpha = 0.55, borderAlpha = 0.28;
@@ -779,6 +780,8 @@ static void applyCardMeta(LiveCard &card, const CardMeta &m)
     card.count = m.count;
     card.z = m.z;
     card.dragging = m.dragging;
+    card.grabDX = m.grabDX;
+    card.grabDY = m.grabDY;
     card.engaging = m.engaging;
     card.dropHover = m.dropHover;
     card.dwellHint = m.dwellHint;
@@ -869,6 +872,8 @@ void StageAnimEffect::reloadLiveCards()
     QFile f(m_livePath);
     if (f.open(QIODevice::ReadOnly)) {
         const auto doc = QJsonDocument::fromJson(f.readAll());
+        // 撕裂/半写 → 保持现状直接返回（裸写无原子保证；掉卡只走空表/
+        // mtime 陈旧/迟滞路径，绝不因 parse 失败而掉）
         if (!doc.isNull()) {
             const auto obj = doc.object();
             const auto arr = obj.value(QStringLiteral("cards")).toArray();
@@ -894,6 +899,8 @@ void StageAnimEffect::reloadLiveCards()
                 meta.count = std::max(1, o.value(QStringLiteral("count")).toInt(1));
                 meta.z = o.value(QStringLiteral("z")).toDouble();
                 meta.dragging = o.value(QStringLiteral("dragging")).toBool();
+                meta.grabDX = o.value(QStringLiteral("grabDX")).toDouble();
+                meta.grabDY = o.value(QStringLiteral("grabDY")).toDouble();
                 meta.engaging = o.value(QStringLiteral("engaging")).toBool();
                 meta.dropHover = o.value(QStringLiteral("dropHover")).toBool();
                 meta.dwellHint = o.value(QStringLiteral("dwellHint")).toBool();
@@ -1080,10 +1087,10 @@ void StageAnimEffect::reloadLiveCards()
                                              << "yOff" << card.target.yOff << "->" << epose.yOff;
                 card.from = currentPose(card);
                 card.target = epose;
-                // 16ms = 一帧微平滑：姿态流本身逐帧跟随 QML 动画（含过冲
-                // 全程），缓动只抹平取整抖动——滞后压到 1-2 帧（80ms 二次
-                // 平滑会在快速动画时肉眼拖尾）
-                card.ease = TimeLine(std::chrono::milliseconds(16));
+                // 布局补间（v48 控制信道架构）：发布只发终态（布局提交/滚
+                // 轮档位等低速率事件），中间帧由特效补——hoverMs≈280ms
+                // OutCubic，与 QML slot Behavior 同族同拍，90Hz 原生
+                card.ease = TimeLine(card.hoverMs);
                 card.ease.setDirection(TimeLine::Forward);
                 card.easing = true;
             }
@@ -1335,14 +1342,21 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         paintable++;
         card.paintCount++;
 
-        // 有限姿态：静止矩形绕 TopLeft 放大（QML transformOrigin 语义；
-        // 拖拽跟手矩形 QML 已逐帧发布，这里免悬停缩放）
+        // 有限姿态：静止矩形绕 TopLeft 放大（QML transformOrigin 语义）。
+        // 拖拽 = 光标钉位（cursorPos - 抓取偏移，90Hz 零延迟零文件流量）
         LiveCardPose pose = card.target;
         const qreal fadeMul = card.alpha * card.fade; // 入退场 × 压暗/边缘渐隐
         const qreal sc = card.dragging ? 1.0 : card.curScale;
-        pose.rect = QRectF(pose.rect.topLeft(),
-                           QSizeF(pose.rect.width() * sc, pose.rect.height() * sc));
-        pose.angleDeg = card.dragging ? 0.0 : card.curTiltDeg;
+        if (card.dragging) {
+            const QPointF cur = effects->cursorPos();
+            pose.rect = QRectF(cur.x() - card.grabDX, cur.y() - card.grabDY,
+                               pose.rect.width(), pose.rect.height());
+            pose.angleDeg = 0.0;
+        } else {
+            pose.rect = QRectF(pose.rect.topLeft(),
+                               QSizeF(pose.rect.width() * sc, pose.rect.height() * sc));
+            pose.angleDeg = card.curTiltDeg;
+        }
 
         // 投影外接框（tiltProject 前向，全部设备像素）
         const qreal fw = pose.rect.width() * dpr;

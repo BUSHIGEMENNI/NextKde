@@ -9,7 +9,7 @@
         "Description": "Minimize animation toward a configurable target rect (Stage sidebar / dock)",
         "EnabledByDefault": false,
         "License": "GPL",
-        "Name": "stageanim45",
+        "Name": "stageanim49",
         "Version": "1.0"
     }
 }
