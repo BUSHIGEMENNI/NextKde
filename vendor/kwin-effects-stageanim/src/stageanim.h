@@ -195,6 +195,7 @@ private:
     void releaseLiveCard(LiveCard &card);
     void attachLiveCardSources(LiveCard &card); // refOffscreenRendering + 损伤连接（注册/复活共用）
     void scheduleLiveRenders(); // 重拍预算：每拍最多 2 张（优先卡先、其余最久未拍轮转）
+    bool expireAbsentLiveCards(); // 缺席超时踢除：对 m_liveWanted 钟控评估（不依赖发布文件再变）
     void renderLiveTexture(LiveCard &card);
     void drawLiveCards(const RenderTarget &renderTarget, const RenderViewport &viewport);
     void writeLiveStatus();
@@ -211,6 +212,7 @@ private:
     QTimer m_liveStaleTimer;    // 心跳超时 → 撤引用（shell 死亡防挂死）
     QTimer m_liveFrameTimer;    // 自驱帧回调投喂（30Hz framePainted）
     QHash<QString, QSharedPointer<LiveCard>> m_liveCards; // 含 dying 退场卡（统一绘制管线）
+    QSet<QString> m_liveWanted; // 最近一次发布在册的 id（缺席踢除的对照基准）
     QSet<QString> m_livePending; // 文件里有、窗口还没出现（等 windowAdded）
     quint32 m_liveFeedTick = 0;  // 帧投喂分级节拍
     quint32 m_liveFeedCounter = 0; // 相位分配计数

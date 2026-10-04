@@ -252,6 +252,10 @@ StageAnimEffect::StageAnimEffect()
         // 每拍最多 2 张，优先卡（悬停/拖拽/engaging）先、其余最久未拍轮转
         //——所有卡都保证被刷新，只是排队，绝不淹没。
         scheduleLiveRenders();
+
+        // 缺席踢除钟控入口：发布载荷去重后文件可长期静默（无 mtime 变化
+        // ＝无 reload），迟滞到点必须由时钟推进——否则被吞卡满 alpha 卡屏
+        expireAbsentLiveCards();
     });
     m_liveFrameTimer.start();
     reloadLiveCards();
@@ -471,8 +475,14 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
                 deadDone.append(it.key());
         }
         for (const QString &id : deadDone) {
+            qCWarning(STAGEANIM_LOG) << "live SWEEP released" << id.left(8);
             releaseLiveCard(*m_liveCards[id]);
             m_liveCards.remove(id);
+        }
+        if (!deadDone.isEmpty()) {
+            // 清扫后回执同步：QML 侧 _liveActiveIds 据此判定让位/回退，
+            // 残留已释放 id 会让对应槽位多隐藏一拍
+            writeLiveStatus();
         }
         if (anyAnim) {
             // 动画卡区域并集重绘（全屏 addRepaintFull 在本机 GPU 是掉帧
@@ -1116,36 +1126,12 @@ void StageAnimEffect::reloadLiveCards()
         entries.clear();
     }
 
-    // 掉卡迟滞：发布流里瞬时缺席（桥的 rep 记录抖动/minimized 翻转的那
-    // 一拍）不代表卡真没了——立即掉＝"不稳定消失"（淡出→重注册→入场
-    // 动画，30 分钟 83 次重注册的真相）。缺席满 350ms 才真掉（侧栏关闭
-    // 写空表也走同一迟滞）。
-    const qint64 nowSteady = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-    QList<QString> drop;
-    for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
-        if (wanted.contains(it.key())) {
-            (*it)->absentSinceMs = 0;
-            continue;
-        }
-        if ((*it)->absentSinceMs == 0)
-            (*it)->absentSinceMs = nowSteady;
-        if (nowSteady - (*it)->absentSinceMs > 600)
-            drop.append(it.key());
-    }
-    for (const QString &id : drop) {
-        LiveCard &card = *m_liveCards[id];
-        // 退场：撤引用/损伤连接（窗口多半已还原/关闭），dying 标记交给
-        // 统一透明度状态机渐隐——不再走独立 ghost 管线（旧 m_liveFading
-        // 另画一套投影，且其补间没有自己的重绘区域）。发布流回心转意时
-        // 同卡原地复活（见 entries 循环）。
-        detachLiveCard(card);
-        card.dying = true;
-        card.fadeAnimating = false; // 由状态机接管起淡
-        card.hoverAnimating = false;
-    }
-
-    bool changed = !drop.isEmpty();
+    // 掉卡迟滞基准：记下本轮在册集合，缺席踢除交给 expireAbsentLiveCards
+    //（reload 与 33ms 帧钟共用——只靠 reload 评估时，发布文件静默期
+    //（载荷去重后无写）无 reload 可触发，被吞的卡满 alpha 卡在屏上直
+    // 到下一次发布变化或 10s 兜底，"合并后三张卡/残影到切换才消失"的根因）。
+    m_liveWanted = wanted;
+    bool changed = expireAbsentLiveCards();
     for (const auto &e : entries) {
         const QString &eid = std::get<0>(e);
         auto it = m_liveCards.find(eid);
@@ -1287,6 +1273,56 @@ void StageAnimEffect::reloadLiveCards()
         writeLiveStatus();
         effects->addRepaintFull();
     }
+}
+
+// 缺席超时踢除（对 m_liveWanted 钟控评估，reload 与帧钟双入口）。
+// 掉卡迟滞：发布流里瞬时缺席（桥的 rep 记录抖动/minimized 翻转的那
+// 一拍）不代表卡真没了——立即掉＝"不稳定消失"（淡出→重注册→入场
+// 动画，30 分钟 83 次重注册的真相）。缺席满 600ms 才真掉（侧栏关闭
+// 写空表也走同一迟滞）。
+bool StageAnimEffect::expireAbsentLiveCards()
+{
+    if (m_liveCards.isEmpty())
+        return false;
+    const qint64 nowSteady = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    static quint32 s_expireTick = 0;
+    if (++s_expireTick % 300 == 1) // ~10s 心跳：踢除器活着与否一看便知
+        qCWarning(STAGEANIM_LOG) << "live expire tick #" << s_expireTick
+                                 << "wanted=" << m_liveWanted.size()
+                                 << "cards=" << m_liveCards.size();
+    bool changed = false;
+    for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
+        if (m_liveWanted.contains(it.key())) {
+            (*it)->absentSinceMs = 0;
+            continue;
+        }
+        if ((*it)->dying)
+            continue; // 已在退场：让状态机安静走完。重复置 dying/
+                       // fadeAnimating=false 会把 150ms 淡出每 33ms 无限
+                       // 重启＝alpha 永不到 0＝永不清扫＝满 alpha 残影卡屏
+        if ((*it)->absentSinceMs == 0)
+            (*it)->absentSinceMs = nowSteady;
+        if (nowSteady - (*it)->absentSinceMs > 600) {
+            LiveCard &card = **it;
+            // 退场：撤引用/损伤连接（窗口多半已还原/关闭），dying 标记交给
+            // 统一透明度状态机渐隐。发布流回心转意时同卡原地复活（见
+            // reloadLiveCards 的 entries 循环）。
+            qCWarning(STAGEANIM_LOG) << "live expire DROP" << it.key().left(8)
+                                     << "absent" << (nowSteady - (*it)->absentSinceMs)
+                                     << "ms wanted=" << m_liveWanted.size();
+            detachLiveCard(card);
+            card.dying = true;
+            card.fadeAnimating = false; // 由状态机接管起淡（一次性）
+            card.hoverAnimating = false;
+            changed = true;
+        }
+    }
+    if (changed) {
+        writeLiveStatus();
+        effects->addRepaintFull();
+    }
+    return changed;
 }
 
 // 解除离屏引用与损伤连接但保留纹理（dying 淡出还要画一会儿）
