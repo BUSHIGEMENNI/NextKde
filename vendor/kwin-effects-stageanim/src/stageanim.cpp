@@ -1170,21 +1170,33 @@ void StageAnimEffect::reloadLiveCards()
             // 入场动画（老 QML 收编入场完整迁移）：x 侧滑 ±70（OutCubic）
             // + 淡入 OutCubic（enterInstant=飞行时长 animMs/普通=enterMs）
             // + 0.86 长到 1（OutBack）+ 拆分迸开错峰 70ms
-            card->spawnAtMs = 1; // 入场中标记（hoverTl 完成时清零）
             card->alpha = 0.0;
             card->alphaFrom = 0.0;
             card->alphaTo = 1.0;
             card->fadeTl = TimeLine(card->enterInstant
                 ? card->animMs : card->enterMs);
             card->fadeAnimating = true;
-            card->curScale = 0.86;
-            card->scaleFrom = 0.86;
-            card->scaleTo = 1.0;
-            card->tiltFrom = card->target.angleDeg;
-            card->tiltTo = card->target.angleDeg;
-            card->spawnSlide = (card->rightSide ? -70.0 : 70.0);
-            card->hoverTl = TimeLine(card->hoverMs);
-            card->hoverAnimating = true;
+            if (card->enterInstant) {
+                // 收编落卡（老 QML enterInstant 语义）：**只淡入**，时长=
+                // 窗口飞行时长（420ms 同拍收束）——窗口飞向槽位的全程卡在
+                // 同位凝实，两头对接。无侧滑、无 86% 长大（那是非收编
+                // 入场的版式；给收编卡加侧滑=窗口从上飞、卡从侧滑=割裂）
+                card->curScale = 1.0;
+                card->scaleFrom = card->scaleTo = 1.0;
+                card->tiltFrom = card->tiltTo = card->target.angleDeg;
+                card->hoverAnimating = false;
+                card->spawnAtMs = 0;
+            } else {
+                card->spawnAtMs = 1; // 入场中标记（hoverTl 完成时清零）
+                card->curScale = 0.86;
+                card->scaleFrom = 0.86;
+                card->scaleTo = 1.0;
+                card->tiltFrom = card->target.angleDeg;
+                card->tiltTo = card->target.angleDeg;
+                card->spawnSlide = (card->rightSide ? -70.0 : 70.0);
+                card->hoverTl = TimeLine(card->hoverMs);
+                card->hoverAnimating = true;
+            }
             card->dirty = true;
             if (w->window()) {
                 w->window()->refOffscreenRendering();
