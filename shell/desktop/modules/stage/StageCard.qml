@@ -853,6 +853,9 @@ Item {
     Item {
         id: iconRow
         z: 2
+        // chrome 让位：图标排已迁特效正视覆盖层（用户定稿"正视盖住左下
+        // 角"），QML 侧隐藏防双绘
+        visible: !card.effectOwnedChrome
         readonly property int iconSize: StageConfigService.stripIconSize
         readonly property int iconGap: Math.max(3, Math.round(iconSize * 0.2))
         // 卡宽钳制：图标排不裁切（Item 默认不 clip），maxIconSlots×最大
