@@ -2296,7 +2296,7 @@ PanelWindow {
     property real _retractPx: 0        // 0=展开；收起时动画到 _retractFull
     readonly property real _retractFull: root.panelW + StageGeo.GLOW_PAD * 2
     readonly property bool drawerRetracted:
-        root.desktopFullscreen && !root._drawerPeek
+        (root.desktopFullscreen || root._stripYield) && !root._drawerPeek
     Behavior on _retractPx {
         NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
     }
@@ -2312,22 +2312,105 @@ PanelWindow {
     }
     property Timer _drawerPeekTimer: Timer {
         interval: 120
-        onTriggered: if (root.desktopFullscreen) root._drawerPeek = true
+        // 全屏与侵占让位同权：两种收起都要能贴缘拉出（当初只认全屏，
+        // 让位收起后贴缘无反应）
+        onTriggered: {
+            if (root.desktopFullscreen || root._stripYield)
+                root._drawerPeek = true
+        }
     }
     property Timer _drawerUnpeekTimer: Timer {
         interval: 700
         onTriggered: root._drawerPeek = false
     }
 
-    // 挤压倾斜（自适应）：桌面活动窗越宽，卡列被"挤"得倾角越大
-    //（r=活动窗宽/屏宽，scale=1+0.35r；总角在消费处钳 40°=特效上限）
+    // 挤压倾斜（自适应）：桌面**任意**可见窗越宽，卡列被"挤"得倾角越大
+    //（取最大窗宽/屏宽 r，scale=1+0.35r；总角在消费处钳 40°=特效上限）。
+    // ⚠️ 必须 placementRevision 锚定——①windowById 走内部缓存不通知；
+    // ②纯几何更新只递增 placementRevision（records 原地 mutate、revision
+    // 不动）＝"拉伸/移动窗口无感知"的根因
     readonly property real _squeezeTiltScale: {
+        WindowService.placementRevision
         if (!StageConfigService.adaptiveTilt)
             return 1
-        const rec = WindowService.windowById(WindowService.activeWindowId)
-        const w = rec?.toplevel?.geometry?.width ?? 0
-        const r = root.width > 0 ? Math.min(1, Math.max(0, w / root.width)) : 0
-        return 1 + 0.35 * r
+        let w = 0
+        const recs = WindowService.records || []
+        for (let i = 0; i < recs.length; i++) {
+            const r = recs[i]
+            if (r.toplevel?.minimized === true
+                    || r.toplevel?.visible === false)
+                continue
+            const g = r.toplevel?.geometry
+            if (g && g.width > w)
+                w = g.width
+        }
+        const ratio = root.width > 0 ? Math.min(1, Math.max(0, w / root.width)) : 0
+        return 1 + 0.35 * ratio
+    }
+
+    // ── 侵占让位（拉伸感知）：可见桌面窗压住卡列区超阈值＝同样收抽屉 ──
+    // 卡列区外圈 ~24px 是辉光边距（无内容）：窗口压过辉光、盖到真实卡身
+    // （水平重叠 >10% 卡列宽）且垂直重叠 >15% 卡列高 → 收；回落到 <5%
+    // 才回（滞回防抖动）。全屏是它的特例（必全覆盖）
+    property real _stripOverlap: root._stripOverlapRaw
+    property bool _stripYield: false
+    on_StripOverlapChanged: {
+        const h = _stripOverlap
+        if (!root._stripYield && h > 0.10) {
+            // 收起侧 400ms 去抖：交棒/收编飞行窗途经卡列是瞬态侵占，
+            // 立即收＝抽屉乱抖；恢复侧靠滞回本身已稳
+            root._yieldDebounce.restart()
+        } else if (root._stripYield && h < 0.05) {
+            root._yieldDebounce.stop()
+            root._stripYield = false
+        } else if (h <= 0.10) {
+            root._yieldDebounce.stop()
+        }
+    }
+    property Timer _yieldDebounce: Timer {
+        interval: 400
+        onTriggered: if (root._stripOverlap > 0.10) root._stripYield = true
+    }
+    // 启动态 prime：重叠在重启/开条瞬间已是既成事实时，绑定初值赋值不发
+    // changed 信号 → 去抖永不启动＝条带压着窗口不让位。500ms 后按当前
+    // 值直接判定（启动期无飞行瞬态，无需 400ms 去抖）
+    property Timer _yieldPrime: Timer {
+        interval: 500
+        repeat: false
+        running: true
+        onTriggered: {
+            if (!root._stripYield && root._stripOverlap > 0.10)
+                root._stripYield = true
+        }
+    }
+    // 同样必须 revision 锚定（几何在 records 里原地 mutate 不通知）
+    readonly property real _stripOverlapRaw: {
+        WindowService.placementRevision
+        const recs = WindowService.records || []
+        const sx1 = root.rightSide ? root.width - root.panelW
+            - StageGeo.CARD_OVERFLOW_MARGIN
+            : StageGeo.CARD_OVERFLOW_MARGIN
+        const sx2 = sx1 + root.panelW
+        const sy1 = ConfigService.barHeight
+        const sy2 = root.height - ConfigService.baseHeight
+        let worst = 0
+        for (let i = 0; i < recs.length; i++) {
+            const r = recs[i]
+            if (r.toplevel?.minimized === true
+                    || r.toplevel?.visible === false)
+                continue
+            const g = r.toplevel?.geometry
+            if (!g || g.width <= 0 || g.height <= 0)
+                continue
+            const ox = Math.min(sx2, g.x + g.width) - Math.max(sx1, g.x)
+            if (ox <= 0)
+                continue
+            const oy = Math.min(sy2, g.y + g.height) - Math.max(sy1, g.y)
+            if (oy <= 0.15 * (sy2 - sy1))
+                continue
+            worst = Math.max(worst, ox / root.panelW)
+        }
+        return worst
     }
 
     // ── 滚动状态（scroll 模式）：滚轮驱动，clamp 由 layoutCards 回填 ──
@@ -2436,10 +2519,25 @@ PanelWindow {
                 live: root._liveActiveIds[s.appKey] === true,
                 painted: s.cardItem ? s.cardItem.livePainted : false })
         }
+        // 可见窗记录探针：让位/挤压倾斜吃的正是这份数据，卡住时先看
+        // 目标窗到底进没进 records（bridge includeWindow 过滤与否）
+        const wins = []
+        const recs = WindowService.records || []
+        for (let i = 0; i < recs.length && wins.length < 8; i++) {
+            const r = recs[i]
+            const g = r.toplevel?.geometry
+            if (r.toplevel?.minimized === true)
+                continue
+            wins.push({ id: r.identity?.desktopId || r.toplevel?.appId || "?",
+                x: g ? Math.round(g.x) : -1, y: g ? Math.round(g.y) : -1,
+                w: g ? Math.round(g.width) : -1, h: g ? Math.round(g.height) : -1 })
+        }
         return JSON.stringify({ open: root.open, visible: root.visible,
             chromeOwned: root.liveChromeOwned,
             drawer: root.drawerRetracted, retractPx: root._retractPx,
             cardsX: Math.round(cards.x), panelW: root.panelW,
+            overlap: Math.round(root._stripOverlap * 100) / 100,
+            yield: root._stripYield,
             launcherOpen: AppLauncherService.open,
             winW: Math.round(root.width),
             winH: Math.round(root.height),
@@ -2448,7 +2546,7 @@ PanelWindow {
             maxScroll: Math.round(root._maxScroll),
             totalWin: root.totalWindows, order: root._groupOrder,
             hitRegion: [stripHitRegion.y, stripHitRegion.height],
-            slots: slots })
+            wins: wins, slots: slots })
     }
 
     // 显示桌面开关状态机快照（抗打断排障）：集合/在途批次/定时器/焦点
@@ -2985,17 +3083,21 @@ PanelWindow {
         visible: false
     }
 
-    // 抽屉边缘探出热区（仅全屏收起态启用）：贴常驻侧屏缘 12px 全高，
-    // 悬停 120ms 拉出；离开 700ms 收回（mask 收起态正好只放行这条）
+    // 抽屉边缘探出热区（收起态启用——全屏/侵占让位同权）：贴常驻侧屏缘
+    // 12px 全高，悬停 120ms 拉出；离开 700ms 收回（mask 收起态正好只放
+    // 行这条）。peek 期间热区扩成整条卡列——指针从缘条移到卡上
+    // containsMouse 保持 true，不会在交互中途把抽屉收走（NoButton 不
+    // 挡卡片的点击/悬停，hover 事件本就并行分发不互斥）。
     MouseArea {
         id: drawerEdge
-        x: root.rightSide ? root.width - 12 : 0
+        x: root.rightSide ? root.width - width : 0
         y: 0
-        width: 12
+        width: root._drawerPeek
+            ? root.panelW + StageGeo.GLOW_PAD * 2 : 12
         height: root.height
         hoverEnabled: true
         acceptedButtons: Qt.NoButton
-        enabled: root.desktopFullscreen
+        enabled: root.drawerRetracted || root._drawerPeek
         onContainsMouseChanged: {
             if (containsMouse) {
                 root._drawerUnpeekTimer.stop()
