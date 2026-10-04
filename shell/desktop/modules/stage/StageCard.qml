@@ -150,20 +150,18 @@ Item {
         // 矩形整体推偏 (74,115)，内容四边形精准画在错误位置（"实时流不在
         // 卡片里"的真凶）。mapToItem 穿过 card 的 scale 变换，位置已含缩放。
         const pp = plate.mapToItem(null, 0, 0)
-        // 内容矩形内缩（设计约定）：标题行(8+24)+呼吸 6 露出，四周留玻璃
-        // 边框 8——KWin 后置通道画在条带 chrome 之上，不内缩会把标签/关闭
-        // 钮整个盖住，卡片读作"悬浮窗口"而非"卡里有内容"
-        const ins = 8 * sc
-        const top = 38 * sc
+        // 内容满铺牌面（用户定稿：实时流和卡片一样大）。标签/关闭钮在活体
+        // 期间被内容盖住（后置通道画在条带 chrome 之上，输入不受影响），
+        // 活体回退快照时自动重现。
         return {
-            x: Math.round(pp.x + ins),
-            y: Math.round(pp.y + top),
-            w: Math.round(sc * plate.width - ins * 2),
-            h: Math.round(sc * plate.height - top - ins),
+            x: Math.round(pp.x),
+            y: Math.round(pp.y),
+            w: Math.round(sc * plate.width),
+            h: Math.round(sc * plate.height),
             angle: card.rightSide ? -card.tiltCur : card.tiltCur,
             yOff: card.perspectiveYOff,
             focal: StageGeo.TILT_FOCAL,
-            radius: Math.max(4, StageConfigService.cardRadius - 6),
+            radius: StageConfigService.cardRadius,
         }
     }
     // x 入列方向镜像：左侧从右滑入（+70），右侧从左滑入（−70）——都从
