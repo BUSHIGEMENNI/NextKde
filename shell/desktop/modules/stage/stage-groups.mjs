@@ -64,7 +64,11 @@ export function groupRecords(records, opts = {}) {
         const r = records[i]
         if (opts.skipWindowId && r.windowId === opts.skipWindowId)
             continue
-        if (opts.requireMinimized && r.toplevel?.minimized !== true)
+        // minimizedWhitelist：在途收编批次（即将最小化）的窗口例外——
+        // 发布侧预测布局需要它们的槽位矩形（飞行目标），否则收编预发布
+        // 失效、窗口飞向陈旧槽位
+        if (opts.requireMinimized && r.toplevel?.minimized !== true
+                && !opts.minimizedWhitelist?.[r.windowId])
             continue
         if (opts.requirePid && !(r.pid > 0))
             continue

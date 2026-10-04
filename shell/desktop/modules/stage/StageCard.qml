@@ -180,10 +180,6 @@ Item {
     // 驱动（特效 cursorPos 自驱，同管线像素级同步）——这里除放
     // card.scale（TopLeft 变换原点下原点不动，仅 w/h 回到静止尺寸），
     // 倾角也发静止值（hoverTilt 单独给终态）。engaging 卡照发（特效淡出）。
-    // 牌面原点（屏幕系）——拖拽抓取偏移计算用
-    function plateOrigin(): var {
-        return plate.mapToItem(null, 0, 0)
-    }
     function liveCardPose(): var {
         const sc = parent && parent.slotScale !== undefined
             ? parent.slotScale : 1.0

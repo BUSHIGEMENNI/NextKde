@@ -1,8 +1,9 @@
 // stage-live 协议字段契约测试：发布端（StageSidebarWindow.publishLiveCards）
-// 与消费端（vendor stageanim.cpp 的 reloadLiveCards 解析）的 44 个字段名
+// 与消费端（vendor stageanim.cpp 的 reloadLiveCards 解析）的卡字段名
 // 是两侧手抄的——任何 rename 在特效侧静默失配（toDouble(默认) 吞掉）。
-// 本测试正则摄取两侧键名，断言"特效解析的每个卡字段都在发布载荷里"。
-// 顶层键（at/hidden/cards）单独核对。
+// 本测试正则摄取两侧键名，双向断言：①特效解析的每个卡字段都在发布
+// 载荷里；②发布载荷的每个键都被特效解析（或列入下方白名单——防止
+// 死字段悄悄堆积，grabDX/grabDY 就是这么发现的）。顶层键单独核对。
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
@@ -44,6 +45,17 @@ assert(parsedCard.length >= 30,
     `suspiciously few parsed fields (${parsedCard.length}) — parser moved?`);
 assert(published.has("winId"), "v3 winId field missing from publish");
 cases += 2;
+
+// 反向：发布侧死字段检测（白名单=发布但特效有意不读的键）
+const publishWhitelist = new Set([]);
+for (const k of published) {
+    if (k === "id" || k === "winId")
+        continue;
+    cases++;
+    assert(parsedCard.includes(k) || publishWhitelist.has(k),
+        `publishLiveCards sends "${k}" but effect never parses it `
+        + `(dead payload field — remove it or whitelist intentionally)`);
+}
 
 console.log(`stage-protocol: ${cases} checks passed `
     + `(${parsedCard.length} card fields verified)`);

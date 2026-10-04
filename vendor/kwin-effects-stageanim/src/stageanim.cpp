@@ -90,7 +90,7 @@ static QString stageTargetsPath()
 }
 
 // 活体卡描述文件（shell 的 StageSidebarWindow.publishLiveCards 原子写入）：
-//   { "at": <ms>, "hidden": <bool>, "cards": [ { id, winId, x, y, w, h,
+//   { "at": <ms>, "cards": [ { id, winId, x, y, w, h,
 //     angle, yOff, focal, radius, …v3 卡面元数据 } ] }
 // id = 组键（稳定身份，v3）；winId = 渲染窗口（rep 窗口）的 KWin
 // internalId（无花括号）——rep 翻转时特效按它原地换窗重接。x/y/w/h =
@@ -391,6 +391,15 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
                 if (card.window && card.window->isMinimized()
                         && !m_animations.contains(card.window.data())) {
                     card.enterHold = false;
+                    // 释放＝落位凝实：只淡入。注册时装配的非 enterInstant
+                    // 入场（侧滑 ±70/0.86 长大）此时重放＝"落位后卡又从
+                    // 侧边滑入一遍"——统一收敛为 enterInstant 语义（v82）
+                    card.spawnAtMs = 0;
+                    card.curScale = 1.0;
+                    card.scaleFrom = card.scaleTo = 1.0;
+                    card.tiltFrom = card.tiltTo = card.target.angleDeg;
+                    card.curTiltDeg = card.target.angleDeg;
+                    card.hoverAnimating = false;
                     card.alphaFrom = 0.0;
                     card.alphaTo = 1.0;
                     card.fadeTl = TimeLine(std::chrono::milliseconds(180));
@@ -550,7 +559,7 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
         }
         for (const QString &id : deadDone) {
             qCInfo(STAGEANIM_LOG) << "live SWEEP released" << id.left(8);
-            releaseLiveCard(*m_liveCards[id]);
+            releaseLiveCard(*m_liveCards.value(id)); // value()：operator[] 缺键默认构造后解引用即崩（v82）
             m_liveCards.remove(id);
         }
         if (!deadDone.isEmpty()) {
@@ -594,7 +603,12 @@ void StageAnimEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPr
 {
     auto animationIt = m_animations.find(w);
     if (animationIt != m_animations.end()) {
-        (*animationIt).timeLine.advance(presentTime);
+        // 多输出防双喂（v82，与 m_lastLiveAdvance 同理）：prePaintWindow
+        // 每屏各调一次，同帧 advance 两遍＝窗口收放动画约 2 倍速
+        if (presentTime != m_lastAnimAdvance) {
+            m_lastAnimAdvance = presentTime;
+            (*animationIt).timeLine.advance(presentTime);
+        }
         data.setTransformed();
     }
 
@@ -1174,7 +1188,12 @@ void StageAnimEffect::reloadLiveCards()
                 pose.focal = o.value(QStringLiteral("focal")).toDouble();
                 pose.radius = o.value(QStringLiteral("radius")).toDouble();
                 const QString id = o.value(QStringLiteral("id")).toString();
-                if (id.isEmpty() || !pose.rect.isValid())
+                // 坏数据钳制（v82）：合法 JSON 的畸形尺寸会让光栅 w*2×h*2
+                // 巨量分配（w=50000 ≈ 20GB）打爆合成器——超 8× 屏幕量级弃条目
+                static const qreal kMaxDim = 32768.0;
+                if (id.isEmpty() || !pose.rect.isValid()
+                        || pose.rect.width() > kMaxDim
+                        || pose.rect.height() > kMaxDim)
                     continue;
                 if (pose.focal < 100.0)
                     pose.focal = 2200.0;
@@ -1270,6 +1289,10 @@ void StageAnimEffect::reloadLiveCards()
             EffectWindow *w = nullptr;
             const QList<EffectWindow *> all = effects->stackingOrder();
             for (EffectWindow *c : all) {
+                // isDeleted 守卫（v82，与 rep 重接路径同款）：已删除窗口
+                // window() 为空 → 注册成无源僵尸卡白占 wanted 名单
+                if (c->isDeleted())
+                    continue;
                 if (c->internalId().toString(QUuid::WithoutBraces) == winKey) {
                     w = c;
                     break;
@@ -1419,6 +1442,18 @@ void StageAnimEffect::reloadLiveCards()
                                              << "yOff" << card.target.yOff << "->" << epose.yOff;
                 card.from = currentPose(card);
                 card.target = epose;
+                // 静息倾角跟随（v82）：curTiltDeg 只在悬停翻转/注册时刷新，
+                // 静息期发布角变化（静置角滑杆/切侧）不追＝画面停在旧角
+                // 到下一次 hover——"拖滑杆没反应"的最后一块。未悬停未补间
+                // 时对发布角起一段同源补间
+                if (!card.hovered && !card.hoverAnimating && !card.dragging
+                        && !card.enterHold
+                        && std::abs(card.curTiltDeg - epose.angleDeg) > 0.05) {
+                    card.tiltFrom = card.curTiltDeg;
+                    card.tiltTo = epose.angleDeg;
+                    card.hoverTl = TimeLine(card.tiltMs);
+                    card.hoverAnimating = true;
+                }
                 // 自适应补间：上一变化 <60ms = 逐帧流在跟（拖拽避让/滚动
                 // 期间壳恢复逐帧发布）→ 16ms 微跟随（所见即所得，无速度
                 // 突变）；孤立跳变（布局提交/收编落位）→ hoverMs≈280ms
@@ -1708,10 +1743,16 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
     //＝桌面崩溃（2026-10-03 事故元凶）。重拍全部发生在非绘制时机
     //（损伤回调/注册/状态心跳）。
 
-    // 着色器（实例级重试——static 闩锁跨实例共享是黑卡事故元凶，勿回退）
+    // 着色器（实例级重试——static 闩锁跨实例共享是黑卡事故元凶，勿回退；
+    // 失败退避 v82：安装损坏时每帧重编译＝日志洪水+合成器空转，连续
+    // 3 败后降频 5s 一次）
     auto ensureShader = [this](std::unique_ptr<GLShader> &slot, const QString &frag) {
         if (slot && slot->isValid())
             return true;
+        const qint64 nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (m_shaderFails >= 3 && nowMs - m_shaderLastFailMs < 5000)
+            return false;
         slot.reset();
         slot = ShaderManager::instance()->generateShaderFromFile(
             ShaderTrait::MapTexture,
@@ -1721,8 +1762,11 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
                                  << (slot ? (slot->isValid() ? "valid" : "INVALID") : "null");
         if (!slot || !slot->isValid()) {
             slot.reset();
+            m_shaderFails++;
+            m_shaderLastFailMs = nowMs;
             return false;
         }
+        m_shaderFails = 0;
         return true;
     };
     const bool shOk = ensureShader(m_liveShader,
@@ -1745,9 +1789,16 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
 
     const qreal dpr = viewport.scale();
     const GLboolean blendWas = glIsEnabled(GL_BLEND);
+    // blend 四通道全查全还（v82）：glBlendFunc 同时改 RGB/ALPHA，只存
+    // RGB 会把上游 glBlendFuncSeparate 的独立 alpha func 抹平
     GLint blendSrcWas = GL_ONE, blendDstWas = GL_ONE_MINUS_SRC_ALPHA;
+    GLint blendSrcAWas = GL_ONE, blendDstAWas = GL_ONE_MINUS_SRC_ALPHA;
     glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcWas);
     glGetIntegerv(GL_BLEND_DST_RGB, &blendDstWas);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &blendSrcAWas);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &blendDstAWas);
+    GLint activeTexWas = GL_TEXTURE0;
+    glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTexWas);
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     glActiveTexture(GL_TEXTURE0);
@@ -1765,7 +1816,8 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         glDisable(GL_BLEND);
     // blendFunc 精确还原（本 pass 改成预乘 ONE/ONE_MINUS_SRC_ALPHA——
     // 猜默认值不如查询，上游若依赖进入前的 func 即翻车）
-    glBlendFunc(blendSrcWas, blendDstWas);
+    glBlendFuncSeparate(blendSrcWas, blendDstWas, blendSrcAWas, blendDstAWas);
+    glActiveTexture(activeTexWas);
     static quint32 s_pass = 0;
     if (++s_pass % 3000 == 1)
         qCInfo(STAGEANIM_LOG) << "live paint pass #" << s_pass
@@ -1882,8 +1934,11 @@ void StageAnimEffect::drawLiveCardBody(const RenderViewport &viewport,
     paintable++;
     card.paintCount++;
 
-    // 有限姿态：静止矩形绕 TopLeft 放大（QML transformOrigin 语义）
-    LiveCardPose pose = card.target;
+    // 有限姿态：静止矩形绕 TopLeft 放大（QML transformOrigin 语义）。
+    // 基底取 currentPose（from→target 的 OutCubic 插值）：逐帧发布流下
+    // ease=16ms≈直通，孤立跳变（布局提交）→ 280ms 优雅补间——这条缓动
+    // 管线 v73 拆分后一直只喂 damage、从未进绘制（v82 接上）
+    LiveCardPose pose = currentPose(card);
     const qreal fadeMul = card.alpha * card.fade; // 入退场 × 压暗/边缘渐隐
     const qreal sc = card.dragging ? 1.0 : card.curScale;
     if (card.dragging) {
@@ -2012,7 +2067,7 @@ void StageAnimEffect::drawLiveCardBody(const RenderViewport &viewport,
     // 落屏探针（节流）
     if (card.paintCount % 300 == 1) {
         GLubyte sp[4] = {255, 0, 255, 255};
-        const qreal devH = viewport.renderRect().height() * dpr;
+        const qreal devH = viewport.renderRect().height(); // renderRect 已是设备像素，勿再乘 dpr（v82）
         glReadPixels(int(pose.rect.center().x() * dpr),
                      int(devH - pose.rect.center().y() * dpr),
                      1, 1, GL_RGBA, GL_UNSIGNED_BYTE, sp);

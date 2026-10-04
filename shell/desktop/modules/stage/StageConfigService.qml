@@ -340,6 +340,21 @@ QtObject {
                 console.warn("[StageConfig] bad config, keep defaults: " + e)
                 return
             }
+            // 互斥收敛（v82）：两模式同 true 的手工改档（运维实践）在
+            // _load 原样复活＝叠绘冲突；面板只暴露 effect 模式，stream 让路
+            if (svc.thumbLiveEffect && svc.thumbLiveStream) {
+                console.warn("[StageConfig] live mode mutex violated"
+                    + " (effect+stream both on) — stream off")
+                svc.thumbLiveStream = false
+            }
+            // 治愈保存（v82）：_loadPending 窗口期内的 set 已把"未加载的
+            // 默认值"覆写进文件——加载完成后若仍有挂账键，按加载后的
+            // 内存真值补一次落盘（记账只防回滚，防不了文件先被污染）
+            if (Object.keys(_pendingSetKeys).length > 0) {
+                console.warn("[StageConfig] sets raced _load — healing"
+                    + " persisted file")
+                _save()
+            }
             _pendingSetKeys = ({})
             // 启动对齐：把持久值投影到 kwinrc（覆盖 CLI 的临时试验值）。
             // revision 自增：onRevisionChanged 消费方（重排/重发布）在启动

@@ -101,6 +101,21 @@ check("requireMinimized: only minimized windows",
     ["m1"]);
 check("requireMinimized: off keeps old behavior",
     groupRecords(minWins, {}).map(g => g.key), ["a", "b", "c"]);
+// 生产组合锚（v82）：sideGroups 实际以 requireMinimized+excludeKey+
+// excludeKeepMinimized 组合调用——活动组的**最小化兄弟**必须仍成卡
+//（侧栏是最小化窗的家），改检查顺序不应悄悄破坏
+check("requireMinimized+excludeKeepMinimized: active app's minimized"
+    + " sibling keeps card, desktop sibling excluded",
+    groupRecords([
+        rec({ windowId: "fa", identity: { desktopId: "app" } }),
+        rec({ windowId: "fb", identity: { desktopId: "app" },
+            toplevel: { minimized: true } }),
+        rec({ windowId: "fc", identity: { desktopId: "app" } }),
+        rec({ windowId: "bg", identity: { desktopId: "other" } }),
+    ], { skipWindowId: "fa", excludeKey: "app",
+        excludeKeepMinimized: true, requireMinimized: true })
+        .map(g => g.key + ":" + g.wins.map(w => w.windowId).join(",")),
+    ["app:fb"]);   // bg 未最小化：requireMinimized 下不成卡（视图口径）
 
 // ── 前台应用整组排除（excludeKeepMinimized）──
 // 活动窗 + 桌面兄弟 + 最小化兄弟同组：桌面兄弟不出卡，最小化兄弟保留

@@ -64,7 +64,6 @@ struct LiveCard
     LiveCardPose from;    // 缓动起点
     TimeLine ease{std::chrono::milliseconds(220)};
     bool easing = false;
-    std::unique_ptr<EffectWindowVisibleRef> visibleRef;
     bool offscreenRef = false;
     QMetaObject::Connection damageConnection;
     std::unique_ptr<GLTexture> texture; // 卡面尺寸 × dpr 的小纹理
@@ -237,6 +236,9 @@ private:
     QTimer m_liveStaleTimer;    // 10s 周期 reload 兜底（真正的心跳超时判定在 reload 内按 mtime 25s）
     QTimer m_liveFrameTimer;    // 自驱帧回调投喂（30Hz framePainted）
     std::chrono::milliseconds m_lastLiveAdvance{-1}; // 多输出同帧去重（状态机只推进一次）
+    std::chrono::milliseconds m_lastAnimAdvance{-1}; // m_animations 同款同帧去重（v82）
+    int m_shaderFails = 0;            // 着色器编译连败计数（退避用，成功清零）
+    qint64 m_shaderLastFailMs = 0;    // 最近一次编译失败时刻（steady ms）
     QHash<QString, QSharedPointer<LiveCard>> m_liveCards; // 含 dying 退场卡（统一绘制管线）
     QSet<QString> m_liveWanted; // 最近一次发布在册的 id（缺席踢除的对照基准）
     QSet<QString> m_livePending; // 文件里有、窗口还没出现（等 windowAdded）

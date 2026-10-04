@@ -485,6 +485,18 @@ PanelWindow {
     // 击路径（_dispatchNextEngage 内部激活）用 _engagingDispatch 防重入，
     // 维持自己的 engageDelay 卡片交棒时序。
     property bool _engagingDispatch: false
+    // shell 自发的整组还原（显示桌面放出/撤销看门狗/拖拽中心落点）统一
+    // 走此包装：activateGroup 会同步发 activationRequested → 回灌
+    // activateWithSwap 把刚激活/正要还原的窗又收编一遍（v82 P0——
+    // _engagingDispatch 原本只护 engage 派发路径，这些直调全裸奔）
+    function _activateGroupGuarded(ids, focusId) {
+        _engagingDispatch = true
+        try {
+            WindowService.activateGroup(ids, focusId)
+        } finally {
+            _engagingDispatch = false
+        }
+    }
 
     function activateWithSwap(windowId) {
         if (_engagingDispatch)
@@ -559,6 +571,20 @@ PanelWindow {
             root._effKey(activeRec), false)
     }
 
+    // 桌面聚焦类收集（desktopFocus / boot 一致性 / heal 孤儿分支）的统一
+    // 让路判定（v82 收敛）：桌面开关 / 换主派发 / shell 覆盖层任一在窗口
+    // 期内＝有属主管状态，收集让路。此前三家守卫强度不一（boot 定时器
+    // 完全裸奔＝换主后误收编的另一扇门、desktopFocus 不看覆盖层）
+    function _deskCollectYielded(): bool {
+        if (root.shellOverlayActive)
+            return true
+        if (Date.now() - root._lastDeskToggleAt < _deskFocusYieldMs)
+            return true
+        if (Date.now() - root._lastEngageDispatchAt < _engageFocusYieldMs)
+            return true
+        return false
+    }
+
     // ── 桌面聚焦 / 显示桌面开关（Stage Manager 语义的"收进去/放出来"）──
     // KOS 桌面图标层不可激活，点空白处后 KWin 无 activated 记录。
     // ⚠️ "无活动窗"必须去抖 150ms 且核对 kwinActiveId：XWayland 焦点交接
@@ -566,10 +592,8 @@ PanelWindow {
     property Timer _desktopFocusTimer: Timer {
         interval: StageConfigService.desktopFocusDebounce
         onTriggered: {
-            // 点击自带 toggle 路径（DeskCenter onClicked）——同一次点击的
-            // 焦点变化不该再触发第二次收编（实测：两路互相 cancel 在途
-            // 批次，快速点击时状态翻车）。只兜不经过点击的聚焦转移。
-            if (Date.now() - root._lastDeskToggleAt < _deskFocusYieldMs)
+            // 让路判定统一走 _deskCollectYielded（toggle/换主/覆盖层）
+            if (_deskCollectYielded())
                 return
             if (WindowService.activeWindowId === ""
                     && root._desktopFocused()
@@ -677,7 +701,7 @@ PanelWindow {
             // 交棒淡出：置 engaging 后窗口飞出与卡淡出同拍（v80 残影修）
             _markEngagingByIds(ids)
             root._deskReleaseEngageReset.restart()
-            WindowService.activateGroup(ids, focusId)
+            _activateGroupGuarded(ids, focusId)
             console.info("[StageSidebar] desk reveal: restore "
                 + ids.length + " window(s)")
             return
@@ -694,8 +718,7 @@ PanelWindow {
                 deskCollectedFocusId = root.stageActiveId || revived[0]
                 _markEngagingByIds(revived)
                 root._deskReleaseEngageReset.restart()
-                WindowService.activateGroup(revived,
-                    deskCollectedFocusId)
+                _activateGroupGuarded(revived, deskCollectedFocusId)
                 console.warn("[StageSidebar] desk reveal: revived orphaned"
                     + " minimized set (" + revived.length + " window(s))")
             }
@@ -718,7 +741,9 @@ PanelWindow {
             if (cur !== "" && w.ids.indexOf(cur) < 0) {
                 _markEngagingByIds(w.ids)
                 root._deskReleaseEngageReset.restart()
-                WindowService.minimizeGroup(w.ids, false)
+                _engagingDispatch = true
+                try { WindowService.minimizeGroup(w.ids, false) }
+                finally { _engagingDispatch = false }
                 console.warn("[StageSidebar] desk undo: late minimize"
                     + " landed, restored without focus steal")
                 return
@@ -727,7 +752,7 @@ PanelWindow {
                 ? w.focusId : (cur !== "" ? cur : w.ids[0])
             _markEngagingByIds(w.ids)
             root._deskReleaseEngageReset.restart()
-            WindowService.activateGroup(w.ids, focusId)
+            _activateGroupGuarded(w.ids, focusId)
             console.warn("[StageSidebar] desk undo: late minimize landed ("
                 + w.ids.length + "), restored")
         }
@@ -803,12 +828,20 @@ PanelWindow {
                 keepActiveMin = true
             }
         }
+        // 口径与视图一致（v82）：只收已最小化窗 + 在途收编白名单（预测
+        // 槽位需要）。旧口径把"可见未聚焦"窗也计入布局数——视图（卡位）
+        // 与发布（飞行目标）系统性错档（autoMinimize 关/还原未聚焦期）
+        const pendingWhitelist = ({})
+        for (let pi = 0; pi < root._pendingMinimize.length; pi++)
+            pendingWhitelist[root._pendingMinimize[pi]] = true
         const groups = StageGroups.sortByOrder(
             orderOverride || root._groupOrder,
             StageGroups.groupRecords(records,
                 { requirePid: true, overrides: root._mergeOverrides,
                   excludeKey: excludeKey,
-                  excludeKeepMinimized: keepActiveMin }))
+                  excludeKeepMinimized: keepActiveMin,
+                  requireMinimized: true,
+                  minimizedWhitelist: pendingWhitelist }))
         // 基础布局发布，不掺悬停态：聚焦缩放是 TopLeft 原点（y 不动，
         // "从放大位长出"无损），而退避（±deckSidePeek）是鼠标扫过的瞬态
         // ——烤进矩形会让收编窗口落在比卡片落点高/低一个退避量的位置，
@@ -836,7 +869,9 @@ PanelWindow {
         // 视图回流路径），视图布局完全不变。
         if (keepActiveMin) {
             const allGroups = StageGroups.groupRecords(records,
-                { requirePid: true, overrides: root._mergeOverrides })
+                { requirePid: true, overrides: root._mergeOverrides,
+                  requireMinimized: true,
+                  minimizedWhitelist: pendingWhitelist })
             let ghostEntry = null
             for (let g = 0; g < allGroups.length; g++) {
                 if (allGroups[g].key === excludeKey) {
@@ -946,9 +981,11 @@ PanelWindow {
         + "/fg-sched/stage-live.json.status"
     property var _liveActiveIds: ({})   // id → true（回执新鲜期内）
     // 乐观握手记账（v80）：seeded=本轮已播种待回执确认；rejected=回执
-    // 未确认过（特效没接住），不再播种防 QML 显隐振荡
+    // 未确认过（特效没接住）不再播种防 QML 显隐振荡。值=拒收时刻，
+    // 30s 过期（组键含瞬态 pid:N，长会话死键只增不减＝无界增长）
     property var _liveSeeded: ({})
     property var _liveSeedRejected: ({})
+    readonly property int _liveSeedRejectTtlMs: 30000
     property real _liveStatusAt: 0
     property bool liveChromeOwned: false // 特效已接管卡面视觉（QML 只留输入）
 
@@ -962,8 +999,6 @@ PanelWindow {
             _livePublishTimer.start()
     }
     property bool _livePublishDirty: false
-    property real dragGrabDX: 0   // 拖拽抓取偏移（特效光标钉位）
-    property real dragGrabDY: 0
     property Timer _livePublishTimer: Timer {
         interval: 8   // 90Hz 输出：发布流 125Hz 上限 > 帧率，动画满帧
         repeat: true
@@ -1015,7 +1050,6 @@ PanelWindow {
                     radius: p.radius,
                     title: p.title, count: p.count, z: p.z,
                     dragging: root.dragKey === slot.appKey,
-                    grabDX: root.dragGrabDX, grabDY: root.dragGrabDY,
                     selfMergeHint: p.selfMergeHint, rightSide: p.rightSide,
                     merged: p.merged, showCardTitle: p.showCardTitle,
                     enterInstant: p.enterInstant, dragScale: p.dragScale,
@@ -1075,8 +1109,12 @@ PanelWindow {
                 }
             }
             if (seeded) {
+                // ⚠️ 必须整对象替换（copy-on-write）：var 属性原地变异不发
+                // 变更通知，delegate 的 effectOwnedChrome 纯绑定只认整体
+                // 赋值/liveChromeOwned 翻转——原地塞键＝QML 视觉没让位，
+                // 双绘窗照旧（v82 修：乐观握手至此才真正闭环）
+                root._liveActiveIds = Object.assign({}, root._liveActiveIds)
                 root._fastStatusOnce.restart()
-                _applyLivePainted()
             }
         }
         // 模型变化后立即对账一次让位标记（不等下一轮回执轮询）
@@ -1126,11 +1164,17 @@ PanelWindow {
                     // 乐观握手结算：已播种但回执没列＝特效没接住 → 进
                     // rejected 名单（下次发布不再播种）；回执已列的清掉
                     // 历史拒绝（再次收编同 id 时播种不受旧账拖累）。
+                    const rejectSettle = Date.now()
                     for (const sid in root._liveSeeded) {
                         if (!map[sid])
-                            root._liveSeedRejected[sid] = true
+                            root._liveSeedRejected[sid] = rejectSettle
                         else
                             delete root._liveSeedRejected[sid]
+                    }
+                    for (const rid in root._liveSeedRejected) {
+                        if (rejectSettle - root._liveSeedRejected[rid]
+                                > _liveSeedRejectTtlMs)
+                            delete root._liveSeedRejected[rid]
                     }
                     root._liveSeeded = ({})
                     root._liveActiveIds = map
@@ -1302,10 +1346,17 @@ PanelWindow {
         // 不叠加的话发布槽位与最终提交后的视图差一档（窗口飞 d2 发布的槽、
         // 卡落在双换后的槽 = "收进下面那张"的实测根源）。
         let baseOrder = root._groupOrder
-        for (let s = 0; s < root._pendingSwaps.length; s++)
+        const foldNow = Date.now()
+        for (let s = 0; s < root._pendingSwaps.length; s++) {
+            // TTL 外的过期 swap 不折（剪除入口只在 syncCards，静默期后无
+            // 对账——死 swap 叠进预测表＝下一次点卡发布错一档槽位）
+            if (foldNow - root._pendingSwaps[s].at
+                    >= StageGroups.SWAP_COMMIT_TTL_MS)
+                continue
             baseOrder = StageGroups.applySwapOrder(baseOrder,
                 root._pendingSwaps[s].clicked,
                 root._pendingSwaps[s].demoted)
+        }
         // 同一 demoted 不得重复入队：激活滞后时下一手 dispatch 仍看到旧前台
         //（它的最小化已在途），再排一条 swap 会在提交门双落、把同一组挪两档
         const dupDemote = !skipDemote && demotedKey !== ""
@@ -1442,12 +1493,7 @@ PanelWindow {
         root.hoveredKey = ""
         root._clearMergeGesture()
         root.dragKey = slot.appKey
-        // 抓取偏移（光标 - 牌面原点，屏幕系）：特效据此把卡钉在光标上
-        //（v48 控制信道：拖拽期间零文件流量，90Hz 原生跟手）
-        const po = slot.cardItem.plateOrigin()
-        root.dragGrabDX = sceneX - po.x
-        root.dragGrabDY = sceneY - po.y
-        root.publishLiveCards()   // dragging 标志+抓取偏移即时发布
+        root.publishLiveCards()   // dragging 标志即时发布（矩形逐帧跟手）
         root.dragFromIndex = index
         root.dragToIndex = index
         // 抓取偏移 = 指针列坐标 − 卡当前 x/y（保持指尖抓在按下的位置）
@@ -1886,14 +1932,22 @@ PanelWindow {
             const rw = slot.width * StageGeo.DRAG_SCALE
             const rh = slot.height * StageGeo.DRAG_SCALE
             if (centerKey !== "" && centerKey !== key) {
-                root.mergeGroups(key, centerKey)   // 直接落模型（卡片行即消失）
-                console.info("[StageSidebar] center engage+merge " + key
-                    + " -> " + centerKey)
+                // no-op 合并（from 组已无 record）时不再谎报 merge，退回
+                // 纯展开语义（v82）
+                if (root.mergeGroups(key, centerKey))
+                    console.info("[StageSidebar] center engage+merge " + key
+                        + " -> " + centerKey)
+                else
+                    console.warn("[StageSidebar] center merge no-op, "
+                        + "engage only: " + key)
             } else {
                 console.info("[StageSidebar] center engage " + key)
             }
             root._publishOverrideRects(ids, vis.x, vis.y, rw, rh)
-            WindowService.activateGroup(ids, focusId)
+            // 防重入（同 desk 放出路径）+ 拖拽全窗遮罩立即收缩（分支
+            // 提前 return，等记录落地才收缩＝~200ms 整屏点击死区）
+            _updateHitRegionExtent()
+            _activateGroupGuarded(ids, focusId)
             return
         }
         // 合并落点：压在别的卡上松手 = 先播合并动画（被吞卡滑向目标 +
@@ -2453,6 +2507,8 @@ PanelWindow {
         repeat: false
         running: true
         onTriggered: {
+            if (!root.open)
+                return
             if (!root._stripYield && root._stripOverlap > _yieldEngage)
                 root._stripYield = true
         }
@@ -2593,7 +2649,7 @@ PanelWindow {
                 live: root._liveActiveIds[s.appKey] === true,
                 painted: s.cardItem ? s.cardItem.livePainted : false })
         }
-        // 可见窗记录探针：让位/挤压倾斜吃的正是这份数据，卡住时先看
+        // 可见窗记录探针：让位检测吃的正是这份数据，卡住时先看
         // 目标窗到底进没进 records（bridge includeWindow 过滤与否）
         const wins = []
         const recs = WindowService.records || []
@@ -2953,6 +3009,10 @@ PanelWindow {
         repeat: false
         running: root.open
         onTriggered: {
+            // 让路判定与另两家统一（v82）：启动 1.5s 恰逢换主/开关/覆盖层
+            // 空窗时裸收编＝把刚放大的窗又收回去（放大残影的另一扇门）
+            if (_deskCollectYielded())
+                return
             if (WindowService.activeWindowId === ""
                     && root._desktopFocused()
                     && StageConfigService.autoMinimize)
@@ -3009,8 +3069,11 @@ PanelWindow {
                     || root._desktopFocusTimer.running
                     || root._autoMinTimer.running)
                 return
-            // 刚 toggle 过（含撤销/恢复）让路：正常管线最长 ~600ms + 动画
+            // 让路判定统一走 _deskCollectYielded（toggle/换主/覆盖层）；
+            // 孤儿分支另留管线在途检查（上方）与 toggle 长静默窗
             if (Date.now() - root._lastDeskToggleAt < _deskHealSilenceMs)
+                return
+            if (_deskCollectYielded())
                 return
             if (!StageConfigService.autoMinimize)
                 return

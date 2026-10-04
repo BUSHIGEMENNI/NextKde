@@ -713,7 +713,7 @@ ApplicationWindow {
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: "左侧常驻窗口卡片栏；收进/呼出的切换动画随之切换"
+                            text: "屏幕侧缘常驻的窗口卡片栏（左/右可选）：点卡放大换主，收编的应用缩为玻璃卡"
                                   + "（也可在右上角控制中心开关）。"
                             color: theme.secondaryText
                             font.pixelSize: 12
@@ -1059,7 +1059,7 @@ ApplicationWindow {
                     Repeater {
                         model: [
                             { id: "scroll", label: "完整滚动（默认）",
-                              detail: "卡片完整显示、永不重叠；固定可见数量等分侧栏，滚轮翻页（无滚动条），底部位置点+窗数提示" },
+                              detail: "卡片完整显示、永不重叠；固定间距自然排列，超出侧栏可滚轮连续滚动（底部位置点+窗数提示）" },
                             { id: "adaptive", label: "自适应缩小",
                               detail: "卡片全部完整显示，随窗口数量等比缩小" },
                         ]
