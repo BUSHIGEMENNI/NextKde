@@ -135,7 +135,9 @@ struct LiveCard
     // stage-live 的 FBO 朝向采样）
     std::unique_ptr<GLTexture> chromeTex;
     std::unique_ptr<GLTexture> glowTex; // 悬停辉光（外扩 24 逻辑 pad）
+    std::unique_ptr<GLTexture> overlayTex; // 正视覆盖层（图标排/拆分芯片）
     QString chromeKey;
+    QString overlayKey;
 };
 
 // MagicLamp derivative whose minimize target is resolved per animation

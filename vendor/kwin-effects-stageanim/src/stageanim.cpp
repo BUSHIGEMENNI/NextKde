@@ -425,8 +425,12 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
                 card.curTiltDeg = card.tiltFrom
                     + (card.tiltTo - card.tiltFrom) * cubic;
                 card.hoverBlend = (card.hovered ? 1.0 : 0.0) * cubic;
-                if (card.hoverTl.done())
+                if (card.hoverTl.done()) {
                     card.hoverAnimating = false;
+                    // 入场侧滑播完清标记——残留会让后续悬停动画被误判为
+                    // 入场中（卡先横跳 ±70 再滑回＝"悬停抽动"的真凶）
+                    card.spawnAtMs = 0;
+                }
                 anyAnim = true;
             }
             if (card.fadeAnimating) {
@@ -884,14 +888,18 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
         + QString::number(w) + QLatin1Char('x') + QString::number(h)
         + QLatin1Char(card.closeHot ? '!' : '.')
         + QLatin1Char(card.merged ? 'M' : 'm')
-        + QLatin1Char(card.chipHot ? 'C' : 'c')
         + QLatin1Char(card.showCardTitle ? 'T' : 't')
-        + QLatin1Char(card.rightSide ? 'R' : 'l')
-        + QLatin1Char('|') + card.iconsJson
         + QLatin1Char('|') + QString::number(int(card.cardGlow * 100));
-    if (key == card.chromeKey && card.chromeTex && card.glowTex)
+    const QString ovKey = card.iconsJson + QLatin1Char('|')
+        + QString::number(card.count) + QLatin1Char('|')
+        + QString::number(w) + QLatin1Char('x') + QString::number(h)
+        + QLatin1Char(card.merged && card.chipHot ? 'C' : 'c')
+        + QLatin1Char(card.rightSide ? 'R' : 'l');
+    if (key == card.chromeKey && card.chromeTex && card.glowTex
+            && ovKey == card.overlayKey && card.overlayTex)
         return;
     card.chromeKey = key;
+    card.overlayKey = ovKey;
 
     // ── 铭牌：标题 + 关闭钮 + 拆分芯片 + 图标排（+N 溢出）──
     QImage img(w * 2, h * 2, QImage::Format_ARGB32_Premultiplied);
@@ -927,59 +935,6 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
     }
     p.drawLine(cx + 13, cy + 13, cx + csize - 13, cy + csize - 13);
     p.drawLine(cx + csize - 13, cy + 13, cx + 13, cy + csize - 13);
-    // 拆分芯片（merged 且点亮：两张 9×9 错位小卡，头部行右部；老右距 31）
-    if (card.merged && card.chipHot) {
-        const int bx = w * 2 - 16 - 62 - 8;
-        const int by = 8 * 2 + (48 - 40) / 2;
-        p.setPen(QPen(QColor(255, 255, 255, 220), 2.8));
-        p.setBrush(Qt::NoBrush);
-        p.drawRoundedRect(QRect(bx + 5, by + 1, 18, 18), 4, 4);
-        p.setBrush(QColor(255, 255, 255, 235));
-        p.drawRoundedRect(QRect(bx - 5 + 18, by + 9, 18, 18), 4, 4);
-    }
-    // 图标排：左下角正视一窗一图标（24px，gap=max(3,20%)；rightSide 镜像
-    // 右下）；封顶 = 卡宽能塞几枚，多出 "+N"
-    QStringList icons;
-    {
-        const auto doc = QJsonDocument::fromJson(card.iconsJson.toUtf8());
-        if (doc.isArray())
-            for (const auto &v : doc.array())
-                icons.append(v.toString());
-    }
-    const int isz = 24 * 2, igap = std::max(6, isz / 5);
-    const int maxFit = std::max(1, (w * 2 + igap) / (isz + igap));
-    const int visible = int(std::min<qsizetype>(icons.size(), maxFit));
-    int rowW = visible > 0 ? visible * isz + (visible - 1) * igap : 0;
-    const bool overflow = icons.size() > visible;
-    if (overflow)
-        rowW += igap + 56; // "+N" 位
-    int ix0 = card.rightSide ? w * 2 - 10 - rowW : 10;
-    const int iy0 = h * 2 - isz + 10; // bottomMargin -5 ≈ 微探出
-    for (int i = 0; i < visible; i++) {
-        const QString &src = icons.at(i);
-        QPixmap pm;
-        if (src.startsWith(QLatin1String("file://")))
-            pm.load(src.mid(7));
-        if (pm.isNull()) {
-            // 主题名兜底（image:// 前缀剥掉后按主题名找）
-            QString name = src;
-            name.remove(QRegularExpression(QStringLiteral("^image://[^/]+/")));
-            pm = QIcon::fromTheme(name).pixmap(isz, isz);
-        }
-        if (!pm.isNull()) {
-            p.drawPixmap(ix0 + i * (isz + igap), iy0, isz, isz, pm);
-        } else {
-            p.setPen(Qt::NoPen);
-            p.setBrush(QColor(255, 255, 255, 90));
-            p.drawRoundedRect(QRect(ix0 + i * (isz + igap), iy0, isz, isz), 8, 8);
-        }
-    }
-    if (overflow) {
-        p.setPen(QColor(255, 255, 255, 200));
-        p.drawText(QRect(ix0 + visible * (isz + igap), iy0, 56, isz),
-                   Qt::AlignLeft | Qt::AlignVCenter,
-                   QStringLiteral("+%1").arg(icons.size() - visible));
-    }
     p.end();
     auto upload = [](const QImage &im) {
         auto tex = GLTexture::allocate(GL_RGBA8, im.size());
@@ -994,6 +949,67 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
         return tex;
     };
     card.chromeTex = upload(img.mirrored(false, true));
+
+    // ── 覆盖层（正视、不随卡倾斜——老架构 iconRow/拆分芯片在根层，
+    //    用户定稿"图标正视，盖住卡片左下角"）：图标排（左下/右条右下）
+    //    + "+N" 溢出 + 拆分芯片（居中，merged 且点亮）──
+    QImage ov(w * 2, h * 2, QImage::Format_ARGB32_Premultiplied);
+    ov.fill(Qt::transparent);
+    QPainter op(&ov);
+    op.setRenderHint(QPainter::Antialiasing, true);
+    op.setRenderHint(QPainter::TextAntialiasing, true);
+    op.setFont(f);
+    QStringList icons;
+    {
+        const auto doc = QJsonDocument::fromJson(card.iconsJson.toUtf8());
+        if (doc.isArray())
+            for (const auto &v : doc.array())
+                icons.append(v.toString());
+    }
+    const int isz = 24 * 2, igap = std::max(6, isz / 5);
+    const int maxFit = std::max(1, (w * 2 + igap) / (isz + igap));
+    const int visible = int(std::min<qsizetype>(icons.size(), maxFit));
+    int rowW = visible > 0 ? visible * isz + (visible - 1) * igap : 0;
+    const bool overflow = icons.size() > visible;
+    if (overflow)
+        rowW += igap + 56;
+    int ix0 = card.rightSide ? w * 2 - 10 - rowW : 10;
+    const int iy0 = h * 2 - isz + 10; // bottomMargin -5 微探出
+    for (int i = 0; i < visible; i++) {
+        const QString &src = icons.at(i);
+        QPixmap pm;
+        if (src.startsWith(QLatin1String("file://")))
+            pm.load(src.mid(7));
+        if (pm.isNull()) {
+            QString name = src;
+            name.remove(QRegularExpression(QStringLiteral("^image://[^/]+/")));
+            pm = QIcon::fromTheme(name).pixmap(isz, isz);
+        }
+        if (!pm.isNull()) {
+            op.drawPixmap(ix0 + i * (isz + igap), iy0, isz, isz, pm);
+        } else {
+            op.setPen(Qt::NoPen);
+            op.setBrush(QColor(255, 255, 255, 90));
+            op.drawRoundedRect(QRect(ix0 + i * (isz + igap), iy0, isz, isz), 8, 8);
+        }
+    }
+    if (overflow) {
+        op.setPen(QColor(255, 255, 255, 200));
+        op.drawText(QRect(ix0 + visible * (isz + igap), iy0, 56, isz),
+                    Qt::AlignLeft | Qt::AlignVCenter,
+                    QStringLiteral("+%1").arg(icons.size() - visible));
+    }
+    if (card.merged && card.chipHot) {
+        // 拆分芯片：卡面居中（老 anchors.centerIn），两张 9×9 错位小卡
+        const int bx = w - 9, by = h - 9; // 逻辑中心 ×2 画布
+        op.setPen(QPen(QColor(255, 255, 255, 220), 2.8));
+        op.setBrush(Qt::NoBrush);
+        op.drawRoundedRect(QRect(bx - 6, by - 6, 18, 18), 4, 4);
+        op.setBrush(QColor(255, 255, 255, 235));
+        op.drawRoundedRect(QRect(bx - 6 + 24, by - 6 + 18, 18, 18), 4, 4);
+    }
+    op.end();
+    card.overlayTex = upload(ov.mirrored(false, true));
 
     // ── 悬停辉光（5 层薄步进光晕：opacity=cardGlow/2^i，外扩 6+i*5/8+i*7，
     //    radius+4+i*4，蓝白 rgba(0.55,0.75,1.0)；静态光栅，alpha=hoverBlend
@@ -1679,6 +1695,20 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
             drawPass(*m_liveShader, pose, ix, iy, iw, ih, QVector2D(0, 0),
                      false, QColor(), QColor(), 0, 0, 0,
                      card.chromeTex.get(), fadeMul);
+        // 覆盖层（正视：图标排/拆分芯片）——老架构根层语义，不随卡倾斜，
+        // 画在卡面之上（"盖住左下角"）
+        if (card.overlayTex && fadeMul > 0.3) {
+            LiveCardPose opose = pose;
+            opose.angleDeg = 0;   // 正视：投影退化为恒等
+            opose.yOff = 0;
+            const qreal oix = opose.rect.left() * dpr;
+            const qreal oiy = opose.rect.top() * dpr;
+            const qreal oiw = opose.rect.width() * dpr;
+            const qreal oih = opose.rect.height() * dpr;
+            drawPass(*m_liveShader, opose, oix, oiy, oiw, oih, QVector2D(0, 0),
+                     false, QColor(), QColor(), 0, 0, 0,
+                     card.overlayTex.get(), fadeMul);
+        }
 
         // 落屏探针（节流）
         if (card.paintCount % 300 == 1) {
