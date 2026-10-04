@@ -85,6 +85,7 @@ struct LiveCard
     qreal z = 0;          // 叠序（QML slot.z）
     bool dragging = false; // 跟手模式：矩形逐帧由 QML 发布，特效免悬停
     bool engaging = false; // 展开中：整体淡出后让位给窗口动画
+    bool dying = false;    // 退场中：发布流已除名，统一淡出后释放（ghost 并入本体）
     bool dropHover = false; // 拖放目标预示（边框蓝）
     bool dwellHint = false; // 驻留合并预示（边框蓝）
     QColor tint{13, 18, 31};      // 背板基色（QML rgba(0.05,0.07,0.12,tint)）
@@ -192,6 +193,8 @@ private:
     void reloadLiveCards();
     void detachLiveCard(LiveCard &card);
     void releaseLiveCard(LiveCard &card);
+    void attachLiveCardSources(LiveCard &card); // refOffscreenRendering + 损伤连接（注册/复活共用）
+    void scheduleLiveRenders(); // 重拍预算：每拍最多 2 张（优先卡先、其余最久未拍轮转）
     void renderLiveTexture(LiveCard &card);
     void drawLiveCards(const RenderTarget &renderTarget, const RenderViewport &viewport);
     void writeLiveStatus();
@@ -207,8 +210,7 @@ private:
     QTimer m_liveStatusTimer;   // 周期刷 status 文件（shell 据此让位快照）
     QTimer m_liveStaleTimer;    // 心跳超时 → 撤引用（shell 死亡防挂死）
     QTimer m_liveFrameTimer;    // 自驱帧回调投喂（30Hz framePainted）
-    QHash<QString, QSharedPointer<LiveCard>> m_liveCards;
-    QHash<QString, QSharedPointer<LiveCard>> m_liveFading; // 退场淡出 ghost
+    QHash<QString, QSharedPointer<LiveCard>> m_liveCards; // 含 dying 退场卡（统一绘制管线）
     QSet<QString> m_livePending; // 文件里有、窗口还没出现（等 windowAdded）
     quint32 m_liveFeedTick = 0;  // 帧投喂分级节拍
     quint32 m_liveFeedCounter = 0; // 相位分配计数
