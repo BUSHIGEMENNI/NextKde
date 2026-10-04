@@ -1169,6 +1169,11 @@ void StageAnimEffect::reloadLiveCards()
             card->from = card->target; // 首次直接落位（与卡片淡入同拍）
             card->ease = TimeLine(std::chrono::milliseconds(80));
             applyCardMeta(*card, std::get<2>(e));
+            // 注册时窗口正在装卡飞行＝收编落卡：强制 enterInstant（只淡
+            // 入，时长=飞行时长）——侧滑/0.86 长大会画在飞行窗口之上
+            // 横跳（v66 起交棒/收编期卡持续可见，见 liveCardPaintable）
+            if (m_animations.contains(w))
+                card->enterInstant = true;
             card->curTiltDeg = card->target.angleDeg; // 悬停引擎起点 = 静止角
             card->chromeKey.clear(); // 强制首帧光栅铭牌
             // 入场动画（老 QML 收编入场完整迁移）：x 侧滑 ±70（OutCubic）
@@ -1467,10 +1472,14 @@ void StageAnimEffect::renderLiveTexture(LiveCard &card)
 
 bool StageAnimEffect::liveCardPaintable(const LiveCard &card) const
 {
-    // 动画期间让位给动画管线（还原/装卡飞行的 apply() 负责姿态）；
-    // 非最小化（已还原回桌面）不画。
-    return !card.window.isNull() && card.window->isMinimized()
-        && !card.window->isDeleted() && !m_animations.contains(card.window);
+    // 交棒期（engaging，窗口已还原）与飞行期（m_animations 含本窗，
+    // 窗口正在进出卡位）卡都要**继续画**：特效后置通道画在窗口之上，
+    // 交棒淡出＝卡覆在长大的窗口上隐去、收编淡入＝卡在飞来的窗口上
+    // 凝实——旧门把这两种状态整段掐掉，卡在飞行起点瞬间消失/终点
+    // 瞬间蹦出＝"闪动"的特效侧根源。真正不画的只有：窗口没了，或
+    // 窗口在桌面上（非最小化且非 engaging/dying 的陈旧卡）。
+    return !card.window.isNull() && !card.window->isDeleted()
+        && (card.window->isMinimized() || card.engaging || card.dying);
 }
 
 void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,

@@ -1959,7 +1959,14 @@ PanelWindow {
                     const bot = (cards.height - slot.y) / fade
                     return Math.max(0, Math.min(1, Math.min(top, bot)))
                 }
-                opacity: (dimmed && StageConfigService.focusDim ? 0.72 : 1)
+                // 压暗过渡：dimmed 由 layoutCards 直写，无阻尼会让
+                // opacity 0.72↔1 瞬跳（经 fade 发布乘进特效卡 alpha＝
+                // 每次切焦整条卡列闪一下）——与 y/x/scale 同族阻尼
+                property real dimBlend: dimmed ? 1 : 0
+                Behavior on dimBlend {
+                    NumberAnimation { duration: StageConfigService.cardEnterDuration; easing.type: Easing.OutCubic }
+                }
+                opacity: (1 - dimBlend * (StageConfigService.focusDim ? 0.28 : 0))
                     * edgeFade
                 width: cards.width - StageGeo.CARD_WIDTH_INSET
                 height: StageConfigService.cardHeight
