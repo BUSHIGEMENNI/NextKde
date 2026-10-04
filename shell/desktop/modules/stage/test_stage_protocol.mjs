@@ -23,9 +23,6 @@ const published = new Set(["id", ...noComments
     .split(",")
     .map(kv => kv.trim().split(":")[0].trim())
     .filter(k => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k))]);
-// 发布顶层键（写出对象）
-assert(/hidden:/.test(sidebar.match(/const body = \{[\s\S]*?\}/)?.[0] ?? ""),
-    "top-level hidden key not published");
 
 // ── 消费端：reloadLiveCards 解析块里 o.value(QStringLiteral("...")) ──
 const reloadBlock = effect.slice(

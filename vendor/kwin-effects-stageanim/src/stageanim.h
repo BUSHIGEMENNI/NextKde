@@ -223,7 +223,6 @@ private:
     QTimer m_liveStaleTimer;    // 10s 周期 reload 兜底（真正的心跳超时判定在 reload 内按 mtime 25s）
     QTimer m_liveFrameTimer;    // 自驱帧回调投喂（30Hz framePainted）
     std::chrono::milliseconds m_lastLiveAdvance{-1}; // 多输出同帧去重（状态机只推进一次）
-    bool m_liveHidden = false;  // 发布顶层 hidden（启动台等覆盖层期）：保持注册、暂停绘制/投喂
     QHash<QString, QSharedPointer<LiveCard>> m_liveCards; // 含 dying 退场卡（统一绘制管线）
     QSet<QString> m_liveWanted; // 最近一次发布在册的 id（缺席踢除的对照基准）
     QSet<QString> m_livePending; // 文件里有、窗口还没出现（等 windowAdded）

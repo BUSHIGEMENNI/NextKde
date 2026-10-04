@@ -815,6 +815,51 @@ ApplicationWindow {
                 }
 
                 StageSliderRow {
+                    label: "卡片宽度"
+                    unit: " px"
+                    minV: 120
+                    maxV: 320
+                    active: true
+                    current: fgSchedPage.stageSnapshot.cardWidth !== undefined
+                        ? fgSchedPage.stageSnapshot.cardWidth : 216
+                    onCommit: function(v) { fgSchedPage.stageSet("cardWidth", v) }
+                }
+
+                // 挤压倾斜：桌面活动窗越宽，卡列静置倾角越大（被"挤"），
+                // 总角仍钳 40°；关＝固定用上面的倾斜强度
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 12
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 4
+
+                        Text {
+                            text: "倾斜随窗口自适应"
+                            color: theme.primaryText
+                            font { pixelSize: 13; weight: Font.Medium }
+                        }
+                        Text {
+                            Layout.fillWidth: true
+                            text: "全屏窗口把侧栏挤得角度更大；桌面空旷时回到基准倾角（最大 40°）。"
+                            color: theme.secondaryText
+                            font.pixelSize: 12
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+
+                    LiquidControls.LiquidGlassSwitch {
+                        checked: fgSchedPage.stageSnapshot.adaptiveTilt !== false
+                        accentColor: theme.accent
+                        trackColor: theme.divider
+                        onToggled: function(checked) {
+                            fgSchedPage.stageSet("adaptiveTilt", checked)
+                        }
+                    }
+                }
+
+                StageSliderRow {
                     label: "倾斜强度"
                     unit: "°"
                     minV: 0

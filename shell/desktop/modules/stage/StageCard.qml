@@ -33,6 +33,9 @@ Item {
     // 合并动画窗内被吞卡的组键（非动画窗为 ""）：交棒淡出期间 rep 翻转
     // 不得复位 engaging（打断淡出＝闪回一帧）
     property string mergeAnimFromKey: ""
+    // 挤压倾斜系数（sidebar 注入）：桌面活动窗越宽越大（1+0.35r），
+    // 应用在静置/悬停/交棒倾角上并钳 40°（特效顶点镜像安全上限）
+    property real tiltScale: 1
     required property string targetId // 代表窗口（缩略图与激活目标）
     required property int pid
     required property string appName
@@ -169,8 +172,9 @@ Item {
         // ⚠️ mapToItem 实测（plate 是 plane 的子项，坐标手工加会偏 (74,115)）
         const pp = plate.mapToItem(null, 0, 0)
         const restTilt = scrollMode
-            ? StageConfigService.deckRestTilt : 0
-        const hoverT = scrollMode ? 0 : StageConfigService.tiltAngle
+            ? Math.min(40, StageConfigService.deckRestTilt * card.tiltScale) : 0
+        const hoverT = scrollMode ? 0
+            : Math.min(40, StageConfigService.tiltAngle * card.tiltScale)
         const title = card.count > 1
             ? (card.appName || card.title || "应用") + " ×" + card.count
             : (card.appName || card.title || "应用")
@@ -190,11 +194,8 @@ Item {
             hoverTilt: card.rightSide ? -hoverT : hoverT,
             // engaging 交棒保持倾角（scroll=deckRestTilt / adaptive=tiltAngle，
             // 老语义：交棒时卡不压平到 0）
-            engagingTilt: card.rightSide
-                ? -(scrollMode ? StageConfigService.deckRestTilt
-                    : StageConfigService.tiltAngle)
-                : (scrollMode ? StageConfigService.deckRestTilt
-                    : StageConfigService.tiltAngle),
+            engagingTilt: (card.rightSide ? -1 : 1)
+                * (scrollMode ? restTilt : hoverT),
             hoverMs: StageConfigService.cardEnterDuration + 40,
             tiltMs: StageConfigService.tiltAnimDuration,
             enterMs: StageConfigService.cardEnterDuration,
@@ -259,9 +260,13 @@ Item {
     readonly property bool scrollMode: StageConfigService.layoutMode === "scroll"
     property real tiltCur: dragging ? 0
         : (scrollMode
-            ? ((isHovered && !engaging) ? 0 : StageConfigService.deckRestTilt)
+            ? ((isHovered && !engaging) ? 0
+                : Math.min(40,
+                    StageConfigService.deckRestTilt * card.tiltScale))
             : ((engaging || (isHovered && !buttonAim))
-                ? StageConfigService.tiltAngle : 0))
+                ? Math.min(40,
+                    StageConfigService.tiltAngle * card.tiltScale)
+                : 0))
     Behavior on tiltCur {
         NumberAnimation {
             duration: card.engaging ? 180 : StageConfigService.tiltAnimDuration

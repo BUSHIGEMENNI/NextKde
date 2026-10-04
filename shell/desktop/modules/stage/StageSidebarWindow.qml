@@ -1022,9 +1022,10 @@ PanelWindow {
         // 心跳另一半）。真变化（动画重定向）写平台 IPC（异步，实测扛 60Hz）。
         // 比较用显式 {cards,hidden} 构造（at 只存在于写入版）——不依赖
         // "at 是首键/卡字段不叫 at"的隐式正则约定
-        const body = { cards: out, hidden: !root.visible }
-        const json = JSON.stringify({ at: Date.now(), hidden: body.hidden,
-            cards: body.cards })
+        // 启动台打开（root.visible=false）时照常发布——实时卡保留在屏
+        //（用户定稿：不突兀消失）；QML 窗体隐藏只是输入壳退场
+        const body = { cards: out }
+        const json = JSON.stringify({ at: Date.now(), cards: out })
         const payloadChanged = JSON.stringify(body) !== root._lastLiveBody
         const now = Date.now()
         if (payloadChanged || now - root._lastLiveWriteAt > 10000) {
@@ -1954,10 +1955,12 @@ PanelWindow {
         // **拆除 width 绑定（不再恢复）**：列宽被撑成 parent.width−两侧
         // margin（1656），卡片拉成 1632 宽，倾斜透视在大宽度上产生极端
         // 剪切（"切右侧时卡片被拉长"的真因，2026-09-30 实锤）
-        x: root.rightSide
-            ? parent.width - StageGeo.PANEL_WIDTH
-                - StageGeo.CARD_OVERFLOW_MARGIN
-            : StageGeo.CARD_OVERFLOW_MARGIN
+        x: (root.rightSide
+               ? parent.width - root.panelW - StageGeo.CARD_OVERFLOW_MARGIN
+               : StageGeo.CARD_OVERFLOW_MARGIN)
+            // 抽屉滑移：收起时滑向常驻侧屏缘（左条向左/右条向右），
+            // 发布姿态经 mapToItem 自动跟随
+            + (root.rightSide ? root._retractPx : -root._retractPx)
         anchors {
             // 顶距跟随顶栏厚度（barHeight 默认 35 + 11 视觉间隙 = 46，删
             // 除"Stage"标题时代的等效值）；别的机器调高顶栏时卡片跟着让位
@@ -1970,7 +1973,7 @@ PanelWindow {
             // 可调 40–100，随 dock 设置实时跟随）
             bottomMargin: ConfigService.baseHeight + 14
         }
-        width: StageGeo.PANEL_WIDTH
+        width: root.panelW
 
         // 指针监测：光标离开整个堆叠区（卡片之间的空隙/露边）时统一收悬停
         MouseArea {
@@ -2106,6 +2109,7 @@ PanelWindow {
                     appKey: slot.appKey
                     mergeAnimFromKey: root._mergeAnimPending
                         ? String(root._mergeAnimPending.from || "") : ""
+                    tiltScale: root._squeezeTiltScale
                     targetId: slot.targetId
                     pid: slot.pid
                     appName: slot.appName
@@ -2264,6 +2268,68 @@ PanelWindow {
     // 悬停聚焦键（组 key）：悬停卡原位放大置顶，其余卡从原位向两侧退避
     property string hoveredKey: ""
 
+    // ── 抽屉（全屏让位）：桌面出现全屏窗＝卡列滑进屏缘；贴缘悬停拉出 ──
+    // 内容列宽（卡宽可调后不再是常量；PANEL_WIDTH 仅作几何兼容旧值）
+    readonly property real panelW:
+        StageConfigService.cardWidth + StageGeo.CARD_WIDTH_INSET
+    // 无头测试覆盖（debugFullscreen verb）：null＝按真实记录判定
+    property var _fullscreenOverride: null
+    // 当前桌面有可见全屏窗＝需要让位
+    readonly property bool desktopFullscreen: _fullscreenOverride !== null
+        ? _fullscreenOverride : _computeDesktopFullscreen()
+    function _computeDesktopFullscreen(): bool {
+        WindowService.revision
+        const desktop = WindowService.currentDesktopId
+        const recs = WindowService.records || []
+        for (let i = 0; i < recs.length; i++) {
+            const r = recs[i]
+            if (r.toplevel?.fullscreen === true
+                    && r.toplevel?.minimized !== true
+                    && (r.toplevel?.onAllDesktops === true
+                        || !r.toplevel?.desktopIds
+                        || r.toplevel.desktopIds.indexOf(desktop) >= 0))
+                return true
+        }
+        return false
+    }
+    property bool _drawerPeek: false   // 收起态贴缘悬停＝拉出（可交互）
+    property real _retractPx: 0        // 0=展开；收起时动画到 _retractFull
+    readonly property real _retractFull: root.panelW + StageGeo.GLOW_PAD * 2
+    readonly property bool drawerRetracted:
+        root.desktopFullscreen && !root._drawerPeek
+    Behavior on _retractPx {
+        NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+    }
+    onDrawerRetractedChanged: {
+        root._retractPx = drawerRetracted ? root._retractFull : 0
+        _updateHitRegionExtent()
+        scheduleLivePublish()
+    }
+    on_RetractPxChanged: {
+        // 发布姿态经 mapToItem 自动含容器位移，逐帧发布让特效跟滑
+        scheduleLivePublish()
+        _updateHitRegionExtent()
+    }
+    property Timer _drawerPeekTimer: Timer {
+        interval: 120
+        onTriggered: if (root.desktopFullscreen) root._drawerPeek = true
+    }
+    property Timer _drawerUnpeekTimer: Timer {
+        interval: 700
+        onTriggered: root._drawerPeek = false
+    }
+
+    // 挤压倾斜（自适应）：桌面活动窗越宽，卡列被"挤"得倾角越大
+    //（r=活动窗宽/屏宽，scale=1+0.35r；总角在消费处钳 40°=特效上限）
+    readonly property real _squeezeTiltScale: {
+        if (!StageConfigService.adaptiveTilt)
+            return 1
+        const rec = WindowService.windowById(WindowService.activeWindowId)
+        const w = rec?.toplevel?.geometry?.width ?? 0
+        const r = root.width > 0 ? Math.min(1, Math.max(0, w / root.width)) : 0
+        return 1 + 0.35 * r
+    }
+
     // ── 滚动状态（scroll 模式）：滚轮驱动，clamp 由 layoutCards 回填 ──
     property real scrollOffset: 0
     property real _lastPitch: 0     // 上一轮布局的槽距（滚轮步进用）
@@ -2339,6 +2405,13 @@ PanelWindow {
         }
     }
 
+    // 无头验证钩子：强制抽屉检测（"on"/"off"/"auto"）
+    function debugFullscreen(mode): string {
+        root._fullscreenOverride = mode === "auto" ? null
+            : mode === "on"
+        return JSON.stringify({ drawer: root.drawerRetracted })
+    }
+
     // 无头验证钩子：绕过驻留直接设/清悬停键（模拟"已停稳"）
     function debugHover(index, over): string {
         if (index < 0 || index >= cardModel.count)
@@ -2365,6 +2438,8 @@ PanelWindow {
         }
         return JSON.stringify({ open: root.open, visible: root.visible,
             chromeOwned: root.liveChromeOwned,
+            drawer: root.drawerRetracted, retractPx: root._retractPx,
+            cardsX: Math.round(cards.x), panelW: root.panelW,
             launcherOpen: AppLauncherService.open,
             winW: Math.round(root.width),
             winH: Math.round(root.height),
@@ -2640,9 +2715,6 @@ PanelWindow {
     onVisibleChanged: {
         if (!visible)
             _abortDrag()
-        // 可见性翻转＝发布 hidden 位变化（启动台开合）：立即写一拍，
-        // 特效收到即暂停/恢复绘制（活体卡悬浮在启动台之上的根修）
-        scheduleLivePublish()
     }
 
     onSideGroupsChanged: syncCards()
@@ -2908,9 +2980,31 @@ PanelWindow {
         id: stripHitRegion
         x: StageGeo.CARD_OVERFLOW_MARGIN   // layoutCards 尾部由 _updateHitRegionExtent 按侧校正
         y: 0
-        width: StageGeo.PANEL_WIDTH
+        width: root.panelW
         height: 0
         visible: false
+    }
+
+    // 抽屉边缘探出热区（仅全屏收起态启用）：贴常驻侧屏缘 12px 全高，
+    // 悬停 120ms 拉出；离开 700ms 收回（mask 收起态正好只放行这条）
+    MouseArea {
+        id: drawerEdge
+        x: root.rightSide ? root.width - 12 : 0
+        y: 0
+        width: 12
+        height: root.height
+        hoverEnabled: true
+        acceptedButtons: Qt.NoButton
+        enabled: root.desktopFullscreen
+        onContainsMouseChanged: {
+            if (containsMouse) {
+                root._drawerUnpeekTimer.stop()
+                root._drawerPeekTimer.restart()
+            } else {
+                root._drawerPeekTimer.stop()
+                root._drawerUnpeekTimer.restart()
+            }
+        }
     }
     // mask 只罩卡条是给点击穿透用的；拖拽中几何扩成全窗（见
     // _updateHitRegionExtent 头注释——指针离开输入区 = 事件停止送达 =
@@ -2949,12 +3043,20 @@ PanelWindow {
             stripHitRegion.x = cards.x   // 四量显式复位（拖拽分支扩过全窗）
             stripHitRegion.y = 0
             stripHitRegion.height = 0
-            stripHitRegion.width = StageGeo.PANEL_WIDTH
+            stripHitRegion.width = root.panelW
+            return
+        }
+        // 抽屉收起态：输入区只留贴缘细条（探出热区），卡列区全放行
+        if (root.drawerRetracted) {
+            stripHitRegion.x = root.rightSide ? root.width - 12 : 0
+            stripHitRegion.y = 0
+            stripHitRegion.width = 12
+            stripHitRegion.height = root.height
             return
         }
         // ⚠️ width 必须显式复位：拖拽分支把它扩成全窗宽，漏复位 = 卡片
         // 纵向范围内整行屏幕的点击永远被吞（"点桌面收不起来"的根源）
-        stripHitRegion.width = StageGeo.PANEL_WIDTH
+        stripHitRegion.width = root.panelW
         stripHitRegion.x = cards.x
         stripHitRegion.y = Math.max(0, Math.floor(top) - StageGeo.GLOW_PAD)
         stripHitRegion.height = Math.ceil(bottom - stripHitRegion.y)

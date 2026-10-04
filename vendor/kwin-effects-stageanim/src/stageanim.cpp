@@ -233,9 +233,6 @@ StageAnimEffect::StageAnimEffect()
         ++m_liveFeedTick;
         const qint64 feedNow = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
-        // hidden（启动台等覆盖层期）不投喂不重拍：卡列不可见，喂帧纯浪费
-        if (m_liveHidden)
-            return;
         for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
             LiveCard &card = **it;
             if (card.dying)
@@ -545,10 +542,6 @@ void StageAnimEffect::paintScreen(const RenderTarget &renderTarget, const Render
     if (m_liveCards.isEmpty())
         return;
     if (effects->activeFullScreenEffect())
-        return;
-    // hidden（启动台等覆盖层打开，QML 窗体已隐）：后置通道画在一切窗之
-    // 上，不暂停＝活体卡悬浮在启动台内容之上。卡保持注册（回来零重入场）
-    if (m_liveHidden)
         return;
     drawLiveCards(renderTarget, viewport);
 }
@@ -1076,9 +1069,6 @@ void StageAnimEffect::reloadLiveCards()
         // 解析块，落入空 wanted＝600ms 后全体掉卡（与注释承诺相反）
         if (doc.isNull())
             return;
-        // 顶层 hidden 旗标（启动台等全屏覆盖层打开时 QML 窗体隐藏）：卡
-        // 保持注册（回来不重入场），绘制/投喂整体暂停
-        m_liveHidden = doc.object().value(QStringLiteral("hidden")).toBool();
         {
             const auto obj = doc.object();
             const auto arr = obj.value(QStringLiteral("cards")).toArray();
