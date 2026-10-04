@@ -138,19 +138,32 @@ Item {
     onScaleChanged: livePoseDirty()
     onTiltCurChanged: livePoseDirty()
     onXChanged: livePoseDirty()
+    // y 也必须挂：滚动（layoutCards 的 scroll 偏移走 slot.y）只改 y——
+    // 漏挂 = 滚动后卡已滚走、内容还停在旧姿态（"内容不在卡片里"帮凶）
+    onYChanged: livePoseDirty()
     function liveCardPose(hovered): var {
         const sc = (parent && parent.slotScale !== undefined
             ? parent.slotScale : 1.0) * card.scale
-        const o = mapToItem(null, 0, 0)
+        // ⚠️ 牌面矩形必须取 mapToItem 实测：plate 是 plane（对称外扩的
+        // 层纹理容器）的子项，其 x/y 是 plane 内部坐标（16+fanPad,22+fanPad），
+        // 在卡片坐标系里牌面其实落在 (0,0)——旧版直接加 plate.x/y 把发布
+        // 矩形整体推偏 (74,115)，内容四边形精准画在错误位置（"实时流不在
+        // 卡片里"的真凶）。mapToItem 穿过 card 的 scale 变换，位置已含缩放。
+        const pp = plate.mapToItem(null, 0, 0)
+        // 内容矩形内缩（设计约定）：标题行(8+24)+呼吸 6 露出，四周留玻璃
+        // 边框 8——KWin 后置通道画在条带 chrome 之上，不内缩会把标签/关闭
+        // 钮整个盖住，卡片读作"悬浮窗口"而非"卡里有内容"
+        const ins = 8 * sc
+        const top = 38 * sc
         return {
-            x: Math.round(o.x + sc * plate.x),
-            y: Math.round(o.y + sc * plate.y),
-            w: Math.round(sc * plate.width),
-            h: Math.round(sc * plate.height),
+            x: Math.round(pp.x + ins),
+            y: Math.round(pp.y + top),
+            w: Math.round(sc * plate.width - ins * 2),
+            h: Math.round(sc * plate.height - top - ins),
             angle: card.rightSide ? -card.tiltCur : card.tiltCur,
             yOff: card.perspectiveYOff,
             focal: StageGeo.TILT_FOCAL,
-            radius: StageConfigService.cardRadius,
+            radius: Math.max(4, StageConfigService.cardRadius - 6),
         }
     }
     // x 入列方向镜像：左侧从右滑入（+70），右侧从左滑入（−70）——都从
