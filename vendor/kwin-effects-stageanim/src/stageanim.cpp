@@ -1828,6 +1828,14 @@ void StageAnimEffect::drawLiveCardBody(const RenderViewport &viewport,
     const QRectF quad = cardBodyQuad(pose, fanMax, dpr);
     const qreal ix = quad.left(), iy = quad.top();
     const qreal iw = quad.width(), ih = quad.height();
+    // ⚠️ 展示损伤声明（半透明↔不透明切换的真凶）：自定义后置绘制必须
+    // 把自己画过的区域加进损伤集——本容器显示栈按损伤集做部分提交，
+    // 卡面不在集合里＝页翻转保留旧内容，多缓冲轮换时卡面在"本帧绘制
+    // /陈旧帧（卡面缺失露壁纸）"间摆动。后台缓冲读回（QUAD 探针）永远
+    // 稳定正是这个病的签名：画了≠呈现了。每帧申报＝该区域恒进损伤集
+    effects->addRepaint(QRectF(quad.left() / dpr, quad.top() / dpr,
+                               quad.width() / dpr,
+                               quad.height() / dpr).toAlignedRect());
 
     rasterChrome(card); // 绘制时机内执行；键（标题/计数/尺寸/态位）变才重光栅+上传
 
@@ -1969,6 +1977,9 @@ void StageAnimEffect::drawSoftwareCursor(const RenderViewport &viewport,
     vbo->draw(GL_TRIANGLE_FAN, 0, 4);
     vbo->unbindArrays();
     m_cursorTex->unbind();
+    // 光标补绘区同样要进损伤集（理由同卡面）
+    effects->addRepaint(QRectF(pos.x() / dpr, pos.y() / dpr,
+                               w / dpr, h / dpr).toAlignedRect());
 }
 
 void StageAnimEffect::writeLiveStatus()
