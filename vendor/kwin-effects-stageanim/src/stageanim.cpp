@@ -379,11 +379,31 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
             }
             if (card.fadeAnimating) {
                 card.fadeTl.advance(presentTime);
-                card.alpha = 1.0 - qBound(0.0, card.fadeTl.value(), 1.0);
+                const qreal t = qBound(0.0, card.fadeTl.value(), 1.0);
+                card.alpha = card.alphaFrom + (card.alphaTo - card.alphaFrom) * t;
                 if (card.fadeTl.done())
                     card.fadeAnimating = false;
                 anyAnim = true;
             }
+        }
+        // 退场 ghost：淡完即彻底释放
+        QList<QString> ghostDone;
+        for (auto it = m_liveFading.begin(); it != m_liveFading.end(); ++it) {
+            LiveCard &card = **it;
+            if (card.fadeAnimating) {
+                card.fadeTl.advance(presentTime);
+                const qreal t = qBound(0.0, card.fadeTl.value(), 1.0);
+                card.alpha = card.alphaFrom + (card.alphaTo - card.alphaFrom) * t;
+                if (card.fadeTl.done())
+                    card.fadeAnimating = false;
+            }
+            if (!card.fadeAnimating)
+                ghostDone.append(it.key());
+            anyAnim = true;
+        }
+        for (const QString &id : ghostDone) {
+            releaseLiveCard(*m_liveFading[id]);
+            m_liveFading.remove(id);
         }
         if (anyAnim)
             effects->addRepaintFull(); // 卡列小区域，动画期全帧请求最稳
@@ -733,6 +753,8 @@ struct CardMeta
     std::chrono::milliseconds hoverMs{240};
     qreal fanSpacing = 6, tintAlpha = 0.55, borderAlpha = 0.28;
     qreal depthStrength = 0.22, topLight = 0.10;
+    qreal fade = 1.0;   // QML slot.opacity（压暗 × 视口边缘渐隐）
+    bool closeHot = false;
 };
 
 static void applyCardMeta(LiveCard &card, const CardMeta &m)
@@ -756,6 +778,8 @@ static void applyCardMeta(LiveCard &card, const CardMeta &m)
     card.tint = QColor(13, 18, 31, int(ta * 255));
     card.tintHover = QColor(26, 33, 51, int(th * 255));
     card.border = QColor(255, 255, 255, int(qBound(0.0, m.borderAlpha, 1.0) * 255));
+    card.fade = m.fade;
+    card.closeHot = m.closeHot;
 }
 
 // 铭牌（标题 + 关闭钮，QML cardHeader 同版式 ×2 超采样）光栅进纹理。
@@ -767,7 +791,8 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
     const int h = std::max(2, qRound(card.target.rect.height()));
     const QString key = card.title + QLatin1Char('|')
         + QString::number(card.count) + QLatin1Char('|')
-        + QString::number(w) + QLatin1Char('x') + QString::number(h);
+        + QString::number(w) + QLatin1Char('x') + QString::number(h)
+        + QLatin1Char(card.closeHot ? '!' : '.');
     if (key == card.chromeKey && card.chromeTex)
         return;
     card.chromeKey = key;
@@ -792,9 +817,17 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
     const int csize = 40; // 20 ×2
     const int cx = w * 2 - 16 - csize;
     const int cy = 8 * 2 + (48 - csize) / 2;
-    p.setPen(QPen(QColor(255, 255, 255, 150), 2.4));
-    p.setBrush(Qt::NoBrush);
-    p.drawEllipse(QRect(cx, cy, csize, csize));
+    // 悬停红钮（QML cardClose #ef4444 同款）；非悬停 = 白圈描线
+    if (card.closeHot) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(239, 68, 68, 235));
+        p.drawEllipse(QRect(cx, cy, csize, csize));
+        p.setPen(QPen(QColor(255, 255, 255, 235), 3.0));
+    } else {
+        p.setPen(QPen(QColor(255, 255, 255, 150), 2.4));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(QRect(cx, cy, csize, csize));
+    }
     p.drawLine(cx + 13, cy + 13, cx + csize - 13, cy + csize - 13);
     p.drawLine(cx + csize - 13, cy + 13, cx + 13, cy + csize - 13);
     p.end();
@@ -857,6 +890,8 @@ void StageAnimEffect::reloadLiveCards()
                 meta.borderAlpha = o.value(QStringLiteral("cardBorder")).toDouble(0.28);
                 meta.depthStrength = o.value(QStringLiteral("cardDepth")).toDouble(0.22);
                 meta.topLight = o.value(QStringLiteral("cardTopLight")).toDouble(0.10);
+                meta.fade = qBound(0.0, o.value(QStringLiteral("fade")).toDouble(1.0), 1.0);
+                meta.closeHot = o.value(QStringLiteral("closeHover")).toBool();
                 entries.append({id, pose, meta});
                 wanted.insert(id);
             }
@@ -886,7 +921,16 @@ void StageAnimEffect::reloadLiveCards()
             drop.append(it.key());
     }
     for (const QString &id : drop) {
-        releaseLiveCard(*m_liveCards[id]);
+        LiveCard &card = *m_liveCards[id];
+        // 退场淡出（QML 卡消失动画的特效侧等价物）：解除离屏引用与损伤
+        // 连接（窗口多半已还原/关闭），纹理留存 150ms 渐隐
+        detachLiveCard(card);
+        card.alphaFrom = card.alpha;
+        card.alphaTo = 0.0;
+        card.fadeTl = TimeLine(std::chrono::milliseconds(150));
+        card.fadeAnimating = true;
+        card.hoverAnimating = false;
+        m_liveFading.insert(id, m_liveCards[id]);
         m_liveCards.remove(id);
     }
 
@@ -916,6 +960,21 @@ void StageAnimEffect::reloadLiveCards()
             applyCardMeta(*card, std::get<2>(e));
             card->curTiltDeg = card->target.angleDeg; // 悬停引擎起点 = 静止角
             card->chromeKey.clear(); // 强制首帧光栅铭牌
+            // 入场动画（QML 收编入场同款：淡入 + 0.86 长到 1，OutCubic）
+            card->alpha = 0.0;
+            card->alphaFrom = 0.0;
+            card->alphaTo = 1.0;
+            card->fadeTl = TimeLine(std::chrono::milliseconds(
+                std::max(120, int(std::chrono::duration_cast<std::chrono::milliseconds>(
+                    card->hoverMs).count() * 3 / 4))));
+            card->fadeAnimating = true;
+            card->curScale = 0.86;
+            card->scaleFrom = 0.86;
+            card->scaleTo = 1.0;
+            card->tiltFrom = card->target.angleDeg;
+            card->tiltTo = card->target.angleDeg;
+            card->hoverTl = TimeLine(card->hoverMs);
+            card->hoverAnimating = true;
             card->dirty = true;
             if (w->window()) {
                 w->window()->refOffscreenRendering();
@@ -961,8 +1020,10 @@ void StageAnimEffect::reloadLiveCards()
             if (card.engaging && !wasEngaging) {
                 // 展开开始：卡面淡出让位给窗口飞行动画（engaging opacity
                 // 让位已随 chrome 一起搬进特效）
+                card.alphaFrom = card.alpha;
+                card.alphaTo = 0.0;
+                card.fadeTl = TimeLine(std::chrono::milliseconds(180));
                 card.fadeAnimating = true;
-                card.alpha = 1.0;
             }
             const LiveCardPose &epose = std::get<1>(e);
             const bool poseChanged = card.target.rect != epose.rect
@@ -998,6 +1059,17 @@ void StageAnimEffect::reloadLiveCards()
         writeLiveStatus();
         effects->addRepaintFull();
     }
+}
+
+// 解除离屏引用与损伤连接但保留纹理（退场 ghost 还要画 150ms）
+void StageAnimEffect::detachLiveCard(LiveCard &card)
+{
+    if (card.window && !card.window.isNull()) {
+        if (card.offscreenRef && card.window->window())
+            card.window->window()->unrefOffscreenRendering();
+        QObject::disconnect(card.damageConnection);
+    }
+    card.offscreenRef = false;
 }
 
 void StageAnimEffect::releaseLiveCard(LiveCard &card)
@@ -1230,6 +1302,7 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         // 有限姿态：静止矩形绕 TopLeft 放大（QML transformOrigin 语义；
         // 拖拽跟手矩形 QML 已逐帧发布，这里免悬停缩放）
         LiveCardPose pose = card.target;
+        const qreal fadeMul = card.alpha * card.fade; // 入退场 × 压暗/边缘渐隐
         const qreal sc = card.dragging ? 1.0 : card.curScale;
         pose.rect = QRectF(pose.rect.topLeft(),
                            QSizeF(pose.rect.width() * sc, pose.rect.height() * sc));
@@ -1282,19 +1355,19 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
             fb.setAlphaF(fb.alphaF() * (0.8 - i * 0.25));
             drawPass(*m_cardShader, pose, ix - off, iy - off, iw, ih,
                      QVector2D(float(-off), float(-off)), true, ft, fb,
-                     1.0, 0.0, 0.0, nullptr, card.alpha);
+                     1.0, 0.0, 0.0, nullptr, fadeMul);
         }
 
         // 2) 主卡（背板 + 渐变 + 内容 + 边框 + 圆角一体）
         drawPass(*m_cardShader, pose, ix, iy, iw, ih, QVector2D(0, 0), false,
                  mainTint, mainBorder, 1.0, card.depthStrength, card.topLight,
-                 card.texture.get(), card.alpha);
+                 card.texture.get(), fadeMul);
 
         // 3) 铭牌（标题/关闭钮，光栅纹理；无圆角裁形）
-        if (card.chromeTex && card.alpha > 0.3)
+        if (card.chromeTex && fadeMul > 0.3)
             drawPass(*m_liveShader, pose, ix, iy, iw, ih, QVector2D(0, 0),
                      false, QColor(), QColor(), 0, 0, 0,
-                     card.chromeTex.get(), card.alpha);
+                     card.chromeTex.get(), fadeMul);
 
         // 落屏探针（节流）
         if (card.paintCount % 300 == 1) {
@@ -1312,6 +1385,39 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         glEnable(GL_SCISSOR_TEST);
     if (!blendWas)
         glDisable(GL_BLEND);
+    // 退场 ghost（冻结姿态淡出；纹理已无更新源）
+    for (auto it = m_liveFading.begin(); it != m_liveFading.end(); ++it) {
+        LiveCard &card = **it;
+        if (card.alpha <= 0.01 || !card.texture)
+            continue;
+        LiveCardPose pose = card.target;
+        // 与主循环同款投影外接框（缩放已冻结在 curScale）
+        const qreal sc2 = card.curScale;
+        pose.rect = QRectF(pose.rect.topLeft(),
+                           QSizeF(pose.rect.width() * sc2, pose.rect.height() * sc2));
+        const qreal fw2 = pose.rect.width() * dpr, fh2 = pose.rect.height() * dpr;
+        const qreal focal2 = pose.focal * dpr, yOff2 = pose.yOff * dpr;
+        const QPointF c2 = pose.rect.center() * dpr;
+        const qreal rad2 = qDegreesToRadians(pose.angleDeg);
+        const qreal sn2 = std::sin(rad2), cs2 = std::cos(rad2);
+        qreal mnx = 1e18, mxx = -1e18, mny = 1e18, mxy = -1e18;
+        for (const qreal u : {-fw2 / 2, fw2 / 2}) {
+            const qreal k = focal2 / (focal2 + u * sn2);
+            mnx = std::min(mnx, u * cs2 * k);
+            mxx = std::max(mxx, u * cs2 * k);
+            for (const qreal v : {-fh2 / 2, fh2 / 2}) {
+                const qreal y = (v + yOff2) * k;
+                mny = std::min(mny, y);
+                mxy = std::max(mxy, y);
+            }
+        }
+        const qreal hw = std::max(mxx, -mnx) + 10.0 * dpr;
+        const qreal hh = std::max(mxy, -mny) + 10.0 * dpr;
+        drawPass(*m_cardShader, pose, c2.x() - hw, c2.y() - hh, hw * 2, hh * 2,
+                 QVector2D(0, 0), false, card.tint, card.border, 1.0,
+                 card.depthStrength, card.topLight, card.texture.get(),
+                 card.alpha * card.fade);
+    }
     static quint32 s_pass = 0;
     if (++s_pass % 3000 == 1)
         qCWarning(STAGEANIM_LOG) << "live paint pass #" << s_pass

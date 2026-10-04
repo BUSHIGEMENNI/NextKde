@@ -895,13 +895,24 @@ PanelWindow {
     property bool liveChromeOwned: false // 特效已接管卡面视觉（QML 只留输入）
 
     function scheduleLivePublish() {
-        _livePublishTimer.restart()
+        // ⚠️ 节流不是防抖：restart 式防抖在持续动画（slot Behavior 每帧
+        // 改 y）下被无限重置饿死＝整个动画期间零发布、结束才一帧（"退避
+        // 动画消失"的真凶）。dirty 标记 + repeat 定时器 = 每 16ms 发一帧、
+        // 最后一拍后自然停。
+        _livePublishDirty = true
+        if (!_livePublishTimer.running)
+            _livePublishTimer.start()
     }
+    property bool _livePublishDirty: false
     property Timer _livePublishTimer: Timer {
-        // 16ms = 逐帧节拍：卡片动画期间 livePoseDirty 持续触发，发布的
-        // 姿态流含 QML 动画全程（含 OutBack 过冲），特效 80ms 短缓动贴着走
         interval: 16
-        onTriggered: root.publishLiveCards()
+        repeat: true
+        onTriggered: {
+            root.publishLiveCards()
+            if (!root._livePublishDirty)
+                stop()
+            root._livePublishDirty = false
+        }
     }
     // 心跳：开着侧栏时周期重写（特效侧 25s mtime 陈旧判据的另一半）
     property Timer _liveHeartbeat: Timer {
@@ -942,6 +953,8 @@ PanelWindow {
                     engaging: engaging,
                     dropHover: slot.cardItem.dropHovered,
                     dwellHint: slot.cardItem.dwellHint,
+                    fade: slot.opacity,            // 压暗 × 边缘渐隐（QML 同源）
+                    closeHover: slot.cardItem.closeHot,
                     hoverScale: p.hoverScale, hoverTilt: p.hoverTilt,
                     hoverMs: p.hoverMs, fanSpacing: p.fanSpacing,
                     cardTint: p.cardTint, cardBorder: p.cardBorder,
@@ -1928,6 +1941,15 @@ PanelWindow {
                     NumberAnimation { duration: StageConfigService.cardEnterDuration; easing.type: Easing.OutCubic }
                 }
                 Behavior on scale { NumberAnimation { duration: StageConfigService.cardEnterDuration; easing.type: Easing.OutCubic } }
+
+                // 活体卡发布钩子：让位/重排/滚动/聚焦缩放/边缘渐隐/压暗
+                // 全部是 slot 层的 Behavior 动画——卡面视觉在特效侧，这里
+                // 不逐帧发布特效就只看到起止两帧＝动画消失（"退避没了"根因）
+                onYChanged: root.scheduleLivePublish()
+                onXChanged: root.scheduleLivePublish()
+                onScaleChanged: root.scheduleLivePublish()
+                onOpacityChanged: root.scheduleLivePublish()
+                onZChanged: root.scheduleLivePublish()
 
                 StageCard {
                     id: card

@@ -99,8 +99,12 @@ struct LiveCard
     qreal scaleFrom = 1.0, scaleTo = 1.0, tiltFrom = 0, tiltTo = 0;
     TimeLine hoverTl{std::chrono::milliseconds(240)};
     bool hoverAnimating = false;
-    // engaging 淡出
+    // 入场/退场/engaging 淡变（alphaFrom→alphaTo）× QML 发布的 fade
+    //（压暗 × 视口边缘渐隐）
     qreal alpha = 1.0;
+    qreal alphaFrom = 1.0, alphaTo = 1.0;
+    qreal fade = 1.0;
+    bool closeHot = false;
     TimeLine fadeTl{std::chrono::milliseconds(180)};
     bool fadeAnimating = false;
     // 铭牌（标题/关闭钮，QPainter 光栅 → 纹理；键变才重绘，Y 镜像匹配
@@ -159,6 +163,7 @@ private:
 
     // ── 活体卡（合成器直绘，stage-live.json 由 shell 发布）──
     void reloadLiveCards();
+    void detachLiveCard(LiveCard &card);
     void releaseLiveCard(LiveCard &card);
     void renderLiveTexture(LiveCard &card);
     void drawLiveCards(const RenderTarget &renderTarget, const RenderViewport &viewport);
@@ -176,6 +181,7 @@ private:
     QTimer m_liveStaleTimer;    // 心跳超时 → 撤引用（shell 死亡防挂死）
     QTimer m_liveFrameTimer;    // 自驱帧回调投喂（30Hz framePainted）
     QHash<QString, QSharedPointer<LiveCard>> m_liveCards;
+    QHash<QString, QSharedPointer<LiveCard>> m_liveFading; // 退场淡出 ghost
     QSet<QString> m_livePending; // 文件里有、窗口还没出现（等 windowAdded）
     std::unique_ptr<GLShader> m_liveShader;
     std::unique_ptr<GLShader> m_cardShader; // 卡面整体（背板/渐变/边框/内容合一）

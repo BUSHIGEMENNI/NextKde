@@ -132,6 +132,8 @@ Item {
     // 整体让位，只留根层输入热区（MouseArea 仍收点击/拖拽/悬停——特效
     // 画不出输入）；回执失效自动恢复 QML 自绘（快照时代观感兜底）
     property bool effectOwnedChrome: false
+    // 关闭钮悬停态（根层热区 containsMouse；铭牌在特效侧据此画红钮）
+    readonly property bool closeHot: closeHit.containsMouse
     // 活体卡发布参数（StageSidebarWindow.publishLiveCards 消费）：
     // 卡面矩形 + 透视参数。**发布动画中的实时值**（card.scale / tiltCur
     // 都带 Behavior，悬停/入场期间逐帧变化）——旧版发终态值，特效按自己的
