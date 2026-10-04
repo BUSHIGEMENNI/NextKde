@@ -223,8 +223,17 @@ StageAnimEffect::StageAnimEffect()
     // 喂到 → 渲染 → 提交 → Window::damaged → dirty + addRepaint。
     m_liveFrameTimer.setInterval(33);
     connect(&m_liveFrameTimer, &QTimer::timeout, this, [this]() {
+        // 帧投喂分级：悬停/拖拽/悬停动画中的卡每拍喂（30fps），其余卡
+        // 轮流喂（~7.5fps）——每次投喂都会引发客户端渲染→损伤→重拍（整
+        // 窗场景树渲进 FBO），全员 30fps 是帧率杀手；侧栏小卡 7.5fps 的
+        // 活体感无肉眼差异
+        ++m_liveFeedTick;
         for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
             LiveCard &card = **it;
+            const bool priority = card.hovered || card.dragging
+                || card.hoverAnimating || card.engaging;
+            if (!priority && (m_liveFeedTick + card.feedPhase) % 4 != 0)
+                continue;
             if (!liveCardPaintable(card) || !card.window->windowItem())
                 continue;
             const auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -922,9 +931,21 @@ void StageAnimEffect::reloadLiveCards()
         entries.clear();
     }
 
+    // 掉卡迟滞：发布流里瞬时缺席（桥的 rep 记录抖动/minimized 翻转的那
+    // 一拍）不代表卡真没了——立即掉＝"不稳定消失"（淡出→重注册→入场
+    // 动画，30 分钟 83 次重注册的真相）。缺席满 350ms 才真掉（侧栏关闭
+    // 写空表也走同一迟滞）。
+    const qint64 nowSteady = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
     QList<QString> drop;
     for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
-        if (!wanted.contains(it.key()))
+        if (wanted.contains(it.key())) {
+            (*it)->absentSinceMs = 0;
+            continue;
+        }
+        if ((*it)->absentSinceMs == 0)
+            (*it)->absentSinceMs = nowSteady;
+        if (nowSteady - (*it)->absentSinceMs > 350)
             drop.append(it.key());
     }
     for (const QString &id : drop) {
@@ -1019,6 +1040,7 @@ void StageAnimEffect::reloadLiveCards()
                     });
             }
             card->dpr = w->screen() ? w->screen()->scale() : 1.0;
+            card->feedPhase = (m_liveFeedCounter++) % 4;
             m_liveCards.insert(eid, card);
             m_livePending.remove(eid);
             renderLiveTexture(*card); // 注册时机（非绘制）先拍一帧

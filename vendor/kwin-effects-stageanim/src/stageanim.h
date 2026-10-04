@@ -71,6 +71,8 @@ struct LiveCard
     // 诊断计数（LiveTrace 节流日志）
     quint32 damageCount = 0;
     qint64 lastRenderMs = 0; // 损伤重拍限频（30fps 上限）
+    qint64 absentSinceMs = 0; // 发布流缺席起点（掉卡迟滞 350ms）
+    int feedPhase = 0; // 非优先卡的帧投喂轮询相位
     quint32 renderCount = 0;
     quint32 paintCount = 0;
 
@@ -184,6 +186,8 @@ private:
     QHash<QString, QSharedPointer<LiveCard>> m_liveCards;
     QHash<QString, QSharedPointer<LiveCard>> m_liveFading; // 退场淡出 ghost
     QSet<QString> m_livePending; // 文件里有、窗口还没出现（等 windowAdded）
+    quint32 m_liveFeedTick = 0;  // 帧投喂分级节拍
+    quint32 m_liveFeedCounter = 0; // 相位分配计数
     std::unique_ptr<GLShader> m_liveShader;
     std::unique_ptr<GLShader> m_cardShader; // 卡面整体（背板/渐变/边框/内容合一）
     bool m_liveEnabled = true; // kwinrc LiveCards 总闸（默认开，排障用）
