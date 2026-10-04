@@ -25,7 +25,13 @@ PanelWindow {
     id: root
 
     WlrLayershell.namespace: "quickshell-stagebar"
-    WlrLayershell.layer: WlrLayer.Top
+    // ⚠️ 必须 Overlay：条带与 DeskCenter 桌面窗同为 layer-shell 窗，同层
+    // （Top）时谁在上=启动映射顺序抽签——桌面窗（0,35 1696x1064）完整覆
+    // 盖卡片区，一旦压在条带上：卡上悬停/点击全被桌面窗吃掉（拆分芯片
+    // 永不亮、关闭钮点不动、空区左键还会触发显示桌面开关＝"合并逻辑很
+    // 奇怪"的来源）。Overlay 恒在全部 Top 层之上，确定性根治（2026-10-04
+    // 叠序实锤：stackingOrder 里 DeskCenter 在 stagebar 之上）。
+    WlrLayershell.layer: WlrLayer.Overlay
     // 全屏透明浮层（2026-09-30 用户定稿"完完全全不用侧边栏，卡片就是
     // 卡片"）：无保留区、无边框——悬停放大/倾斜投影/扇叠背板/拖拽越界
     // 全都不会再被窗缘裁掉（旧 280px 窗实测裁掉扇叠）。输入只挡卡面
