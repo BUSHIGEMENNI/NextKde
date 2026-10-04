@@ -43,9 +43,6 @@ QtObject {
         "cardHeight":   { type: "int", min: 100, max: 220, def: 148 },
         // 卡宽（卡高之外的独立自由度；默认 216 = 原 PANEL_WIDTH−24 定宽）
         "cardWidth":    { type: "int", min: 120, max: 320, def: 216 },
-        // 挤压倾斜：桌面活动窗越宽，卡列静置倾角越大（被"挤"的语义），
-        // 总角仍钳 40°（特效顶点镜像安全上限）
-        "adaptiveTilt": { type: "bool", def: true },
         "cardSpacing":  { type: "int", min: 4, max: 48, def: 16 },
         "centerCards":  { type: "bool", def: true },
         "deckSidePeek": { type: "int", min: 4, max: 60, def: 20 },
@@ -116,7 +113,6 @@ QtObject {
     property bool showCardTitle: true
     property int cardHeight: 148
     property int cardWidth: 216
-    property bool adaptiveTilt: true
     property int cardSpacing: 16
     // adaptive 模式：放得下时整列垂直居中；贴满时顶部锚定
     property bool centerCards: true

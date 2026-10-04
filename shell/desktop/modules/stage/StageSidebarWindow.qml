@@ -2203,7 +2203,6 @@ PanelWindow {
                     appKey: slot.appKey
                     mergeAnimFromKey: root._mergeAnimPending
                         ? String(root._mergeAnimPending.from || "") : ""
-                    tiltW: root._squeezeTiltW
                     targetId: slot.targetId
                     pid: slot.pid
                     appName: slot.appName
@@ -2420,54 +2419,31 @@ PanelWindow {
         onTriggered: root._drawerPeek = false
     }
 
-    // 挤压倾斜（自适应）：桌面**任意**可见窗越宽，卡列被"挤"得倾角越大。
-    // 权重语义：w = min(1, 最大可见窗宽/屏宽)，角度 = 基准 + (40−基准)×w
-    //（空旷=基准角、满宽=40°，与面板文案逐字对应）。旧乘法 基准×(1+0.35r)
-    // 再钳 40 在基准≥30 时恒钳 40＝滑杆上半段死区（"立体"预设 40° 拖了
-    // 没反应的根因）；插值下任何基准<40 都有响应，基准=40 才恒满（用户
-    // 明确选满）。⚠️ 必须 placementRevision 锚定——①windowById 走内部
-    // 缓存不通知；②纯几何更新只递增 placementRevision（records 原地
-    // mutate、revision 不动）＝"拉伸/移动窗口无感知"的根因
-    readonly property real _squeezeTiltW: {
-        WindowService.placementRevision
-        if (!StageConfigService.adaptiveTilt)
-            return 0
-        let w = 0
-        const recs = WindowService.records || []
-        for (let i = 0; i < recs.length; i++) {
-            const r = recs[i]
-            if (r.toplevel?.minimized === true
-                    || r.toplevel?.visible === false)
-                continue
-            const g = r.toplevel?.geometry
-            if (g && g.width > w)
-                w = g.width
-        }
-        return root.width > 0 ? Math.min(1, Math.max(0, w / root.width)) : 0
-    }
-
-    // ── 侵占让位（拉伸感知）：可见桌面窗压住卡列区超阈值＝同样收抽屉 ──
-    // 卡列区外圈 ~24px 是辉光边距（无内容）：窗口压过辉光、盖到真实卡身
-    // （水平重叠 >10% 卡列宽）且垂直重叠 >15% 卡列高 → 收；回落到 <5%
-    // 才回（滞回防抖动）。全屏是它的特例（必全覆盖）
+    // ── 侵占让位（拉伸感知）：可见桌面窗压住卡列＝收抽屉 ──
+    // 挤压倾斜已删（v81.4 用户定稿：角度变化在弱透视下不明显，压上来
+    // 直接收进侧边）。阈值 10% 卡列宽＝窗口压过 ~24px 无内容辉光边距、
+    // 盖到真实卡身即收；回落 <5% 才回（滞回防抖动）。全屏是特例（必全
+    // 覆盖）
+    readonly property real _yieldEngage: 0.10
+    readonly property real _yieldRelease: 0.05
     property real _stripOverlap: root._stripOverlapRaw
     property bool _stripYield: false
     on_StripOverlapChanged: {
         const h = _stripOverlap
-        if (!root._stripYield && h > 0.10) {
+        if (!root._stripYield && h > _yieldEngage) {
             // 收起侧 400ms 去抖：交棒/收编飞行窗途经卡列是瞬态侵占，
             // 立即收＝抽屉乱抖；恢复侧靠滞回本身已稳
             root._yieldDebounce.restart()
-        } else if (root._stripYield && h < 0.05) {
+        } else if (root._stripYield && h < _yieldRelease) {
             root._yieldDebounce.stop()
             root._stripYield = false
-        } else if (h <= 0.10) {
+        } else if (h <= _yieldEngage) {
             root._yieldDebounce.stop()
         }
     }
     property Timer _yieldDebounce: Timer {
         interval: 400
-        onTriggered: if (root._stripOverlap > 0.10) root._stripYield = true
+        onTriggered: if (root._stripOverlap > _yieldEngage) root._stripYield = true
     }
     // 启动态 prime：重叠在重启/开条瞬间已是既成事实时，绑定初值赋值不发
     // changed 信号 → 去抖永不启动＝条带压着窗口不让位。500ms 后按当前
@@ -2477,7 +2453,7 @@ PanelWindow {
         repeat: false
         running: true
         onTriggered: {
-            if (!root._stripYield && root._stripOverlap > 0.10)
+            if (!root._stripYield && root._stripOverlap > _yieldEngage)
                 root._stripYield = true
         }
     }

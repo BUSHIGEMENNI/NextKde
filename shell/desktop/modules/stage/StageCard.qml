@@ -33,15 +33,6 @@ Item {
     // 合并动画窗内被吞卡的组键（非动画窗为 ""）：交棒淡出期间 rep 翻转
     // 不得复位 engaging（打断淡出＝闪回一帧）
     property string mergeAnimFromKey: ""
-    // 挤压倾斜系数（sidebar 注入）：桌面活动窗越宽越大（1+0.35r），
-    // 应用在静置/悬停/交棒倾角上并钳 40°（特效顶点镜像安全上限）
-    property real tiltW: 0   // 挤压权重 0..1（最大可见窗宽/屏宽；0=空旷基准）
-    // 挤压插值：基准角在空旷值与 40° 上限间按权重推进。不用乘法——
-    // 乘法+钳位在基准≥30 时恒钳 40＝滑杆上半段死区（见 _squeezeTiltW
-    // 头注释）
-    function squeezeTilt(base: real): real {
-        return Math.min(40, base + (40 - base) * card.tiltW)
-    }
     required property string targetId // 代表窗口（缩略图与激活目标）
     required property int pid
     required property string appName
@@ -199,9 +190,9 @@ Item {
         // ⚠️ mapToItem 实测（plate 是 plane 的子项，坐标手工加会偏 (74,115)）
         const pp = plate.mapToItem(null, 0, 0)
         const restTilt = scrollMode
-            ? squeezeTilt(StageConfigService.deckRestTilt) : 0
+            ? StageConfigService.deckRestTilt : 0
         const hoverT = scrollMode ? 0
-            : squeezeTilt(StageConfigService.tiltAngle)
+            : StageConfigService.tiltAngle
         const title = card.count > 1
             ? (card.appName || card.title || "应用") + " ×" + card.count
             : (card.appName || card.title || "应用")
@@ -288,9 +279,9 @@ Item {
     property real tiltCur: dragging ? 0
         : (scrollMode
             ? ((isHovered && !engaging) ? 0
-                : squeezeTilt(StageConfigService.deckRestTilt))
+                : StageConfigService.deckRestTilt)
             : ((engaging || (isHovered && !buttonAim))
-                ? squeezeTilt(StageConfigService.tiltAngle)
+                ? StageConfigService.tiltAngle
                 : 0))
     Behavior on tiltCur {
         NumberAnimation {
