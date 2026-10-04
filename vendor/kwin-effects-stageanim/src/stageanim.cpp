@@ -405,8 +405,17 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
             releaseLiveCard(*m_liveFading[id]);
             m_liveFading.remove(id);
         }
-        if (anyAnim)
-            effects->addRepaintFull(); // 卡列小区域，动画期全帧请求最稳
+        if (anyAnim) {
+            // 动画卡区域并集重绘（全屏 addRepaintFull 在本机 GPU 是掉帧
+            // 大头——卡列只占屏幕一角）
+            for (LiveCard *cp2 : order) {
+                const LiveCard &c2 = *cp2;
+                const QRectF r(c2.target.rect.topLeft(),
+                               QSizeF(c2.target.rect.width() * c2.hoverScale,
+                                      c2.target.rect.height() * c2.hoverScale));
+                effects->addRepaint(r.adjusted(-30, -30, 30, 30).toAlignedRect());
+            }
+        }
     }
 
     effects->prePaintScreen(data, presentTime);
@@ -428,14 +437,12 @@ void StageAnimEffect::paintScreen(const RenderTarget &renderTarget, const Render
                                  << "anims=" << m_animations.size();
     effects->paintScreen(renderTarget, viewport, mask, deviceRegion, screen);
 
-    if (m_liveCards.isEmpty() || !m_animations.isEmpty()) {
-        static quint32 s_psBlocked = 0;
-        if (++s_psBlocked % 18000 == 1)
-            qCWarning(STAGEANIM_LOG) << "live paintScreen BLOCKED #" << s_psBlocked
-                                     << "cards=" << m_liveCards.size()
-                                     << "anims=" << m_animations.size();
+    // ⚠️ 不可再有 m_animations 全局让位闸：卡面视觉整体在特效手里，全局
+    // 一让＝动画期间整列卡消失（旧架构只让内容、QML 卡面还在）。改为
+    // 逐卡让位——飞行中窗口自己的卡跳过（liveCardPaintable 内判定），
+    // 其余卡照画；飞行窗由合成器画在窗层级，交叠瞬间由 engage 淡出遮蔽。
+    if (m_liveCards.isEmpty() && m_liveFading.isEmpty())
         return;
-    }
     if (effects->activeFullScreenEffect())
         return;
     drawLiveCards(renderTarget, viewport);

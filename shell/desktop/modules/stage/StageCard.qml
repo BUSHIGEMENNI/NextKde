@@ -649,10 +649,11 @@ Item {
         anchors.centerIn: parent
         width: plane.width + 64
         height: plane.height + 64
-        // chrome 让位：特效画卡面时 QML 透视层退场（opacity 链有效；
-        // visible 改动在 plane 不可见子树里会被吞——2026-10-03 实测）
-        opacity: card.effectOwnedChrome ? 0.0 : 1.0
-        Behavior on opacity { NumberAnimation { duration: 140 } }
+        // chrome 让位：特效画卡面时 QML 透视层退场。用 visible（根层
+        // 直渲染项，visible 正常生效——被吞的是 plane 不可见子树内部的
+        // 改动）：彻底停掉对 plane 层纹理的采样与重渲染——opacity 0 时
+        // 场景图仍逐帧重渲层（动画期掉帧的大头之一）。
+        visible: !card.effectOwnedChrome
         // uniform 显式声明（ShaderEffect 不自动创建属性；source 约定名，
         // plane 的 layer 纹理由此进 sampler）
         property variant source: plane
