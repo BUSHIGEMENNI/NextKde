@@ -128,6 +128,10 @@ Item {
     // 直绘这张卡 → 缩略图 Image 透明让出卡面（opacity 而非 visible——
     // plane 不可见子树吞 visible 改动，opacity 链实测有效）
     property bool livePainted: false
+    // 特效接管卡面视觉（方案"卡进特效"）：本卡 QML 视觉（plane 透视层）
+    // 整体让位，只留根层输入热区（MouseArea 仍收点击/拖拽/悬停——特效
+    // 画不出输入）；回执失效自动恢复 QML 自绘（快照时代观感兜底）
+    property bool effectOwnedChrome: false
     // 活体卡发布参数（StageSidebarWindow.publishLiveCards 消费）：
     // 卡面矩形 + 透视参数。**发布动画中的实时值**（card.scale / tiltCur
     // 都带 Behavior，悬停/入场期间逐帧变化）——旧版发终态值，特效按自己的
@@ -141,27 +145,41 @@ Item {
     // y 也必须挂：滚动（layoutCards 的 scroll 偏移走 slot.y）只改 y——
     // 漏挂 = 滚动后卡已滚走、内容还停在旧姿态（"内容不在卡片里"帮凶）
     onYChanged: livePoseDirty()
+    // v2：发布**静止姿态** + 卡面元数据。悬停放大/压平动画不再由 QML
+    // 驱动（特效 cursorPos 自驱，同管线像素级同步）——这里除放
+    // card.scale（TopLeft 变换原点下原点不动，仅 w/h 回到静止尺寸），
+    // 倾角也发静止值（hoverTilt 单独给终态）。engaging 卡照发（特效淡出）。
     function liveCardPose(hovered): var {
-        const sc = (parent && parent.slotScale !== undefined
-            ? parent.slotScale : 1.0) * card.scale
-        // ⚠️ 牌面矩形必须取 mapToItem 实测：plate 是 plane（对称外扩的
-        // 层纹理容器）的子项，其 x/y 是 plane 内部坐标（16+fanPad,22+fanPad），
-        // 在卡片坐标系里牌面其实落在 (0,0)——旧版直接加 plate.x/y 把发布
-        // 矩形整体推偏 (74,115)，内容四边形精准画在错误位置（"实时流不在
-        // 卡片里"的真凶）。mapToItem 穿过 card 的 scale 变换，位置已含缩放。
+        const sc = parent && parent.slotScale !== undefined
+            ? parent.slotScale : 1.0
+        // ⚠️ mapToItem 实测（plate 是 plane 的子项，坐标手工加会偏 (74,115)）
         const pp = plate.mapToItem(null, 0, 0)
-        // 内容满铺牌面（用户定稿：实时流和卡片一样大）。标签/关闭钮在活体
-        // 期间被内容盖住（后置通道画在条带 chrome 之上，输入不受影响），
-        // 活体回退快照时自动重现。
+        const restTilt = scrollMode
+            ? StageConfigService.deckRestTilt : 0
+        const hoverT = scrollMode ? 0 : StageConfigService.tiltAngle
+        const title = card.count > 1
+            ? (card.appName || card.title || "应用") + " ×" + card.count
+            : (card.appName || card.title || "应用")
         return {
             x: Math.round(pp.x),
             y: Math.round(pp.y),
             w: Math.round(sc * plate.width),
             h: Math.round(sc * plate.height),
-            angle: card.rightSide ? -card.tiltCur : card.tiltCur,
+            angle: card.rightSide ? -restTilt : restTilt,
             yOff: card.perspectiveYOff,
             focal: StageGeo.TILT_FOCAL,
             radius: StageConfigService.cardRadius,
+            title: title,
+            count: card.count,
+            z: parent && parent.z !== undefined ? parent.z : 0,
+            hoverScale: StageConfigService.hoverScale,
+            hoverTilt: card.rightSide ? -hoverT : hoverT,
+            hoverMs: StageConfigService.cardEnterDuration + 40,
+            fanSpacing: StageConfigService.fanSpacing,
+            cardTint: StageConfigService.cardTint,
+            cardBorder: StageConfigService.cardBorder,
+            cardDepth: StageConfigService.cardDepth,
+            cardTopLight: StageConfigService.cardTopLight,
         }
     }
     // x 入列方向镜像：左侧从右滑入（+70），右侧从左滑入（−70）——都从
@@ -629,6 +647,10 @@ Item {
         anchors.centerIn: parent
         width: plane.width + 64
         height: plane.height + 64
+        // chrome 让位：特效画卡面时 QML 透视层退场（opacity 链有效；
+        // visible 改动在 plane 不可见子树里会被吞——2026-10-03 实测）
+        opacity: card.effectOwnedChrome ? 0.0 : 1.0
+        Behavior on opacity { NumberAnimation { duration: 140 } }
         // uniform 显式声明（ShaderEffect 不自动创建属性；source 约定名，
         // plane 的 layer 纹理由此进 sampler）
         property variant source: plane

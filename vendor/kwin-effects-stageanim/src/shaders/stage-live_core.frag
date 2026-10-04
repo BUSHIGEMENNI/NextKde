@@ -17,7 +17,8 @@ uniform float yOff;
 uniform vec2 camRel;    // 相机在 item 坐标系：x = item 中心（= 卡中心竖轴），y = 地平线
 uniform vec2 itemSize;  // 本覆盖矩形设备像素尺寸
 uniform vec2 cardSize;  // 卡面设备像素尺寸
-uniform float crad;     // 圆角半径（设备像素）
+uniform float crad;
+uniform float alpha;     // 圆角半径（设备像素）
 
 in vec2 uv;
 out vec4 fragColor;
@@ -48,5 +49,5 @@ void main(void)
     if (a <= 0.003)
         discard;
     // FBO 内容是预乘 alpha，整体乘 a 后仍是合法的预乘输出
-    fragColor = texture(texUnit, tuv) * a;
+    fragColor = texture(texUnit, tuv) * a * alpha;
 }

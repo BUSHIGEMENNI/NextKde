@@ -72,6 +72,41 @@ struct LiveCard
     quint32 damageCount = 0;
     quint32 renderCount = 0;
     quint32 paintCount = 0;
+
+    // ── 卡面本体（方案"卡进特效"：chrome 由特效同管线绘制）──
+    // 元数据（QML 发布，v2 协议）
+    QString title;        // 显示名（QML 拼好含 ×N 后缀）
+    int count = 1;        // 组内窗数（扇叠背板数 = min(count-1, 2)）
+    qreal z = 0;          // 叠序（QML slot.z）
+    bool dragging = false; // 跟手模式：矩形逐帧由 QML 发布，特效免悬停
+    bool engaging = false; // 展开中：整体淡出后让位给窗口动画
+    bool dropHover = false; // 拖放目标预示（边框蓝）
+    bool dwellHint = false; // 驻留合并预示（边框蓝）
+    QColor tint{13, 18, 31};      // 背板基色（QML rgba(0.05,0.07,0.12,tint)）
+    QColor tintHover{26, 33, 51}; // 悬停提亮（×1.3 色族）
+    QColor border{255, 255, 255, 71};
+    qreal hoverScale = 1.18;
+    qreal hoverTiltDeg = 0;       // 悬停终态倾角（已含右条镜像符号）
+    std::chrono::milliseconds hoverMs{240};
+    qreal fanSpacing = 6;
+    qreal depthStrength = 0.22;
+    qreal topLight = 0.10;
+    // 悬停状态机（特效自驱：cursorPos 命中静止矩形——与 QML 输入区同界；
+    // 动画在本进程跑，与内容同管线同时钟 = 像素级同步）
+    bool hovered = false;
+    qreal curScale = 1.0;   // 当前插值（绘制用）
+    qreal curTiltDeg = 0;
+    qreal scaleFrom = 1.0, scaleTo = 1.0, tiltFrom = 0, tiltTo = 0;
+    TimeLine hoverTl{std::chrono::milliseconds(240)};
+    bool hoverAnimating = false;
+    // engaging 淡出
+    qreal alpha = 1.0;
+    TimeLine fadeTl{std::chrono::milliseconds(180)};
+    bool fadeAnimating = false;
+    // 铭牌（标题/关闭钮，QPainter 光栅 → 纹理；键变才重绘，Y 镜像匹配
+    // stage-live 的 FBO 朝向采样）
+    std::unique_ptr<GLTexture> chromeTex;
+    QString chromeKey;
 };
 
 // MagicLamp derivative whose minimize target is resolved per animation
@@ -131,6 +166,8 @@ private:
     bool liveCardPaintable(const LiveCard &card) const;
     static LiveCardPose lerpPose(const LiveCardPose &a, const LiveCardPose &b, qreal t);
     static LiveCardPose currentPose(const LiveCard &card);
+    // 卡面铭牌（标题/关闭钮）光栅化；键（标题/计数/尺寸）变才重绘
+    void rasterChrome(LiveCard &card);
 
     QString m_livePath;
     QString m_liveStatusPath;
@@ -141,6 +178,7 @@ private:
     QHash<QString, QSharedPointer<LiveCard>> m_liveCards;
     QSet<QString> m_livePending; // 文件里有、窗口还没出现（等 windowAdded）
     std::unique_ptr<GLShader> m_liveShader;
+    std::unique_ptr<GLShader> m_cardShader; // 卡面整体（背板/渐变/边框/内容合一）
     bool m_liveEnabled = true; // kwinrc LiveCards 总闸（默认开，排障用）
 };
 

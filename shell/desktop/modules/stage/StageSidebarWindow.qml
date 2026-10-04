@@ -892,6 +892,7 @@ PanelWindow {
         + "/fg-sched/stage-live.json"
     property var _liveActiveIds: ({})   // id → true（回执新鲜期内）
     property real _liveStatusAt: 0
+    property bool liveChromeOwned: false // 特效已接管卡面视觉（QML 只留输入）
 
     function scheduleLivePublish() {
         _livePublishTimer.restart()
@@ -922,12 +923,11 @@ PanelWindow {
                 const slot = cardRepeater.itemAt(i)
                 if (!slot || !slot.cardItem)
                     continue
-                if (slot.cardItem.engaging)
-                    continue
-                if (root.dragKey === slot.appKey)
-                    continue
+                const engaging = slot.cardItem.engaging
+                // engaging 卡发布供特效淡出（窗口已还原，不受"仅最小
+                // 化"门限制约）；拖拽卡照常发布（矩形逐帧跟手）
                 const rep = WindowService.windowById(slot.targetId)
-                if (!rep || rep.toplevel?.minimized !== true)
+                if (!engaging && (!rep || rep.toplevel?.minimized !== true))
                     continue
                 const hid = WindowService.handleIdOf(slot.targetId)
                 if (hid === "")
@@ -936,7 +936,16 @@ PanelWindow {
                     root.hoveredKey === slot.appKey)
                 cards.push({ id: hid, x: p.x, y: p.y, w: p.w, h: p.h,
                     angle: p.angle, yOff: p.yOff, focal: p.focal,
-                    radius: p.radius })
+                    radius: p.radius,
+                    title: p.title, count: p.count, z: p.z,
+                    dragging: root.dragKey === slot.appKey,
+                    engaging: engaging,
+                    dropHover: slot.cardItem.dropHovered,
+                    dwellHint: slot.cardItem.dwellHint,
+                    hoverScale: p.hoverScale, hoverTilt: p.hoverTilt,
+                    hoverMs: p.hoverMs, fanSpacing: p.fanSpacing,
+                    cardTint: p.cardTint, cardBorder: p.cardBorder,
+                    cardDepth: p.cardDepth, cardTopLight: p.cardTopLight })
             }
         }
         JsonConfigStore.writePath(root._livePath, JSON.stringify(
@@ -965,6 +974,9 @@ PanelWindow {
                         // 判定窗 > 特效回执周期（8s）+余量：6s 时每 8 秒
                         // 有 2 秒不新鲜 → 快照闪回（"偶尔显示"的元凶）
                         const fresh = Date.now() - root._liveStatusAt < 12000
+                        // chrome:true = 卡面视觉已由特效接管（QML 隐视觉
+                        // 留输入）——回执失效时自动退回 QML 自绘
+                        root.liveChromeOwned = fresh && st.chrome === true
                         const map = ({})
                         if (fresh && st.active && Array.isArray(st.cards))
                             for (let i = 0; i < st.cards.length; i++)
@@ -1960,6 +1972,8 @@ PanelWindow {
                     }
                     // 卡片动画（scale/tilt/x Behavior）期间逐帧发布活体姿态
                     onLivePoseDirty: root.scheduleLivePublish()
+                    // 特效接管卡面视觉的让位开关（root 轮询回执维护）
+                    effectOwnedChrome: root.liveChromeOwned
                 }
             }
         }
