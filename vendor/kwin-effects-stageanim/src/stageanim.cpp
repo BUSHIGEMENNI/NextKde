@@ -1002,11 +1002,18 @@ void StageAnimEffect::reloadLiveCards()
                         (*it2)->damageCount++;
                         // 官方 screencast 同款时序：损伤到达（合成器线程、
                         // 非绘制时机）立即重拍——渲染器重入在这里是安全的。
-                        // 动画期让位（只标脏等动画结束后心跳兜底拍）
-                        if (liveCardPaintable(**it2))
+                        // ⚠️ 限频 30fps：损伤信号可达 60-120Hz，每次重拍都
+                        // 是整窗场景树渲进 FBO（合成器线程大头）；折进 dirty
+                        // 由心跳兜底补拍，活体感无肉眼差异
+                        const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count();
+                        if (liveCardPaintable(**it2)
+                                && nowMs - (*it2)->lastRenderMs >= 33) {
+                            (*it2)->lastRenderMs = nowMs;
                             renderLiveTexture(**it2);
-                        else
+                        } else {
                             (*it2)->dirty = true;
+                        }
                         const QRectF r = currentPose(**it2).rect;
                         effects->addRepaint(r.adjusted(-40, -40, 40, 40).toAlignedRect());
                     });

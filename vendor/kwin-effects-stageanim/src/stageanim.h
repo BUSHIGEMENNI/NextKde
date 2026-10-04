@@ -70,6 +70,7 @@ struct LiveCard
     qreal dpr = 1.0;  // 最近一次绘制时的输出缩放（纹理分配依据）
     // 诊断计数（LiveTrace 节流日志）
     quint32 damageCount = 0;
+    qint64 lastRenderMs = 0; // 损伤重拍限频（30fps 上限）
     quint32 renderCount = 0;
     quint32 paintCount = 0;
 

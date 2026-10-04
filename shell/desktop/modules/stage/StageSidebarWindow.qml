@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
+import Quickshell.Io
 // ⚠️ ScreencastingRequest 是本模块的类型（活体缩略图流开单窗口用）——
 // 曾被"未使用"审计误删导致 shell crash-loop（is not a type），勿再删
 import org.kde.taskmanager
@@ -893,6 +894,12 @@ PanelWindow {
     property var _liveActiveIds: ({})   // id → true（回执新鲜期内）
     property real _liveStatusAt: 0
     property bool liveChromeOwned: false // 特效已接管卡面视觉（QML 只留输入）
+    // 活体姿态流直写通道（FileView：原子写、免平台 IPC 往返）
+    property FileView _livePoseFile: FileView {
+        path: root._livePath
+        watchChanges: false
+        preload: false
+    }
 
     function scheduleLivePublish() {
         // ⚠️ 节流不是防抖：restart 式防抖在持续动画（slot Behavior 每帧
@@ -961,8 +968,9 @@ PanelWindow {
                     cardDepth: p.cardDepth, cardTopLight: p.cardTopLight })
             }
         }
-        JsonConfigStore.writePath(root._livePath, JSON.stringify(
-            { at: Date.now(), cards: cards }))
+        // FileView 直写（壳进程内、异步落盘）：动画期 16ms 一拍，走平台
+        // IPC（QSaveFile+inotify 往返三进程）曾是掉帧贡献者
+        _livePoseFile.setText(JSON.stringify({ at: Date.now(), cards: cards }))
         // 模型变化后立即对账一次让位标记（不等下一轮回执轮询）
         _applyLivePainted()
     }
