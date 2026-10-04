@@ -436,6 +436,10 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
                 const bool hit = rest.contains(cur)
                     || (card.hovered && grown.contains(cur));
                 if (hit != card.hovered) {
+                    qCInfo(STAGEANIM_LOG) << "live hover"
+                        << (hit ? "IN " : "OUT") << card.id.left(10)
+                        << "cur" << int(cur.x()) << int(cur.y())
+                        << "rest" << card.target.rect;
                     card.hovered = hit;
                     card.scaleFrom = card.curScale;
                     card.tiltFrom = card.curTiltDeg;
@@ -936,7 +940,7 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
     const QString ovKey = card.iconsJson + QLatin1Char('|')
         + QString::number(card.count) + QLatin1Char('|')
         + QString::number(w) + QLatin1Char('x') + QString::number(h)
-        + QLatin1Char(card.merged && card.chipHot ? 'C' : 'c')
+        + QLatin1Char(card.merged ? (card.chipHot ? 'C' : 'N') : 'c')
         + QLatin1Char(card.rightSide ? 'R' : 'l');
     if (key == card.chromeKey && card.chromeTex
             && ovKey == card.overlayKey && card.overlayTex)
@@ -1042,13 +1046,16 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
                     Qt::AlignLeft | Qt::AlignVCenter,
                     QStringLiteral("+%1").arg(icons.size() - visible));
     }
-    if (card.merged && card.chipHot) {
-        // 拆分芯片：卡面居中（老 anchors.centerIn），两张 9×9 错位小卡
+    if (card.merged) {
+        // 拆分芯片：卡面居中（老 anchors.centerIn），两张 9×9 错位小卡。
+        // 合并卡**常显**暗态（alpha 90——"反馈不清楚"的修复：用户要知道
+        // 这张卡能拆），悬停点亮（chipHot=isHovered||mergeGlow → 加亮）
         const int bx = w - 9, by = h - 9; // 逻辑中心 ×2 画布
-        op.setPen(QPen(QColor(255, 255, 255, 220), 2.8));
+        const int base = card.chipHot ? 235 : 90;
+        op.setPen(QPen(QColor(120, 210, 255, card.chipHot ? 235 : 110), 2.8));
         op.setBrush(Qt::NoBrush);
         op.drawRoundedRect(QRect(bx - 6, by - 6, 18, 18), 4, 4);
-        op.setBrush(QColor(255, 255, 255, 235));
+        op.setBrush(QColor(255, 255, 255, base));
         op.drawRoundedRect(QRect(bx - 6 + 24, by - 6 + 18, 18, 18), 4, 4);
     }
     op.end();
@@ -1632,7 +1639,9 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
     const bool shOk = ensureShader(m_liveShader,
                       QStringLiteral(":/stageanim/shaders/stage-live.frag"))
         && ensureShader(m_cardShader,
-                      QStringLiteral(":/stageanim/shaders/stage-card.frag"));
+                      QStringLiteral(":/stageanim/shaders/stage-card.frag"))
+        && ensureShader(m_cursorShader,
+                      QStringLiteral(":/stageanim/shaders/stage-cursor.frag"));
     if (!shOk)
         return;
 
@@ -1659,6 +1668,8 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
     quint32 paintable = 0;
     for (const auto &cp : order)
         drawLiveCardBody(viewport, dpr, *cp, paintable);
+    // 软件光标补绘（必须在全部卡之后：后置通道本身盖住了场景内光标）
+    drawSoftwareCursor(viewport, dpr);
     if (scissorWas)
         glEnable(GL_SCISSOR_TEST);
     if (!blendWas)
@@ -1915,6 +1926,49 @@ void StageAnimEffect::drawLiveCardBody(const RenderViewport &viewport,
                                  << "screen-px rgba =" << sp[0] << sp[1]
                                  << sp[2] << sp[3] << "damage" << card.damageCount;
     }
+}
+
+// 软件光标补绘：paintScreen 后置通道画在整场景（含场景内光标）之上，
+// 无硬件光标平面的环境（本容器）里光标会被卡面盖住＝"卡不透明时鼠标
+// 消失"。effects->cursorImage() 覆盖形状/表面两类光标；QImage 预乘，
+// blend 状态沿用本函数的 (ONE, ONE_MINUS_SRC_ALPHA)。
+void StageAnimEffect::drawSoftwareCursor(const RenderViewport &viewport,
+                                         qreal dpr)
+{
+    const PlatformCursorImage ci = effects->cursorImage();
+    const QImage img = ci.image();
+    if (img.isNull() || img.width() < 1 || img.height() < 1)
+        return;
+    const qint64 key = img.cacheKey();
+    if (!m_cursorTex || key != m_cursorImgKey) {
+        m_cursorImgKey = key;
+        m_cursorHotspot = ci.hotSpot();
+        m_cursorTex = GLTexture::upload(
+            img.convertToFormat(QImage::Format_ARGB32_Premultiplied));
+        if (!m_cursorTex)
+            return;
+    }
+    ShaderBinder binder(m_cursorShader.get());
+    m_cursorShader->setUniform("modelViewProjectionMatrix",
+                               viewport.projectionMatrix());
+    m_cursorShader->setUniform("texUnit", 0);
+    m_cursorShader->setUniform("alpha", 1.0f);
+    const QPointF pos = effects->cursorPos() * dpr - m_cursorHotspot * dpr;
+    const qreal w = img.width(), h = img.height(); // 设备像素直绘（主题光标本即设备分辨率）
+    GLVertexBuffer *vbo = GLVertexBuffer::streamingBuffer();
+    const QList<GLVertex2D> verts = {
+        GLVertex2D{QVector2D(float(pos.x()), float(pos.y())), QVector2D(0, 0)},
+        GLVertex2D{QVector2D(float(pos.x() + w), float(pos.y())), QVector2D(1, 0)},
+        GLVertex2D{QVector2D(float(pos.x() + w), float(pos.y() + h)), QVector2D(1, 1)},
+        GLVertex2D{QVector2D(float(pos.x()), float(pos.y() + h)), QVector2D(0, 1)},
+    };
+    vbo->reset();
+    vbo->setVertices(verts);
+    vbo->bindArrays();
+    m_cursorTex->bind();
+    vbo->draw(GL_TRIANGLE_FAN, 0, 4);
+    vbo->unbindArrays();
+    m_cursorTex->unbind();
 }
 
 void StageAnimEffect::writeLiveStatus()

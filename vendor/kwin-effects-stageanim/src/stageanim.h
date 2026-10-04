@@ -196,6 +196,7 @@ private:
     bool expireAbsentLiveCards(); // 缺席超时踢除：对 m_liveWanted 钟控评估（不依赖发布文件再变）
     void renderLiveTexture(LiveCard &card);
     void drawLiveCards(const RenderTarget &renderTarget, const RenderViewport &viewport);
+    void drawSoftwareCursor(const RenderViewport &viewport, qreal dpr);
     // drawLiveCards 拆分（306 行巨函数＝历次回归高发区）：单 pass 原语 /
     // 投影外接框 / 单卡全 pass 序列。全部纯搬运，行为零变化
     void liveCardPass(const RenderViewport &viewport, qreal dpr, GLShader &sh,
@@ -230,6 +231,12 @@ private:
     quint32 m_liveFeedCounter = 0; // 相位分配计数
     std::unique_ptr<GLShader> m_liveShader;
     std::unique_ptr<GLShader> m_cardShader; // 卡面整体（背板/渐变/边框/内容合一）
+    // 软件光标补绘：后置通道盖住场景内光标（容器无硬件光标平面），
+    // 卡画完后按 effects->cursorImage() 在光标位重绘精灵
+    std::unique_ptr<GLShader> m_cursorShader;
+    std::unique_ptr<GLTexture> m_cursorTex;
+    qint64 m_cursorImgKey = 0;
+    QPointF m_cursorHotspot;
     bool m_liveEnabled = true; // kwinrc LiveCards 总闸（默认开，排障用）
 };
 

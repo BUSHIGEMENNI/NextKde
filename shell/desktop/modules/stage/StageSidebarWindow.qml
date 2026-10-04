@@ -2355,9 +2355,12 @@ PanelWindow {
                 continue
             slots.push({ app: s.appKey, y: Math.round(s.y),
                 scale: Math.round(s.slotScale * 100) / 100, z: s.z,
-                x: Math.round(s.x) })
+                x: Math.round(s.x),
+                live: root._liveActiveIds[s.appKey] === true,
+                painted: s.cardItem ? s.cardItem.livePainted : false })
         }
         return JSON.stringify({ open: root.open, visible: root.visible,
+            chromeOwned: root.liveChromeOwned,
             launcherOpen: AppLauncherService.open,
             winW: Math.round(root.width),
             winH: Math.round(root.height),
@@ -2650,11 +2653,18 @@ PanelWindow {
 
     Connections {
         target: AppLauncherService
-        // 覆盖层关在桌面上（点外部关闭/启动应用后又回桌面）：此刻活动窗
-        // 已是空且不会再变——手动补一次桌面聚焦判定
         function onOpenChanged() {
-            if (!AppLauncherService.open
-                    && WindowService.activeWindowId === ""
+            if (AppLauncherService.open) {
+                // 老语义恢复：启动台打开＝桌面窗口整批收编进卡（与显示
+                // 桌面同款管线，记开关集——启动台里点应用＝正常激活；
+                // 点桌面空区＝deskReveal 放出）。不收＝桌面摊着窗而启动
+                // 台盖在上面，观感与老代码不一致
+                _collectDesktopToStrip(true)
+                return
+            }
+            // 覆盖层关在桌面上（点外部关闭/启动应用后又回桌面）：此刻
+            // 活动窗已是空且不会再变——手动补一次桌面聚焦判定
+            if (WindowService.activeWindowId === ""
                     && root._prevActiveId !== "")
                 root._desktopFocusTimer.restart()
         }
