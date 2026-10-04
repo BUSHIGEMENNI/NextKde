@@ -642,6 +642,7 @@ PanelWindow {
     readonly property int _deskUndoWatchMs: 900       // 撤销后迟到落地兜底
     readonly property int _deskFocusYieldMs: 1200      // toggle 后焦点定时器让路
     readonly property int _deskHealSilenceMs: 1600     // toggle 后 heal 静默窗
+    readonly property int _engageFocusYieldMs: 2000    // 换主后聚焦收集让路窗
     readonly property int _deskHoldReleaseMs: 600      // 扣卡兜底释放（< 让路）
 
     // 桌面窗 id 集合（按最小化状态过滤；pid>0 且在当前桌面）——收编目标
@@ -1270,6 +1271,10 @@ PanelWindow {
     // 派发时刻（还原在途判定用：demoted 记录滞后的最小化旗标时，只有
     // "我们刚 engage 过的组"才可信它其实在前台——600ms 内还原必落地）
     property real _lastDispatchedAt: 0
+    // 换主派发时刻：聚焦收集（desktopFocus/heal）的让路锚——换主后
+    // 焦点交接空窗（active 空+被放窗在桌面）最长 ~2s，当残局收回＝
+    // 刚放大的窗口在原槽位重生卡一闪（v81 放大残影的根源）
+    property real _lastEngageDispatchAt: 0
 
     property Timer _engageDispatchTimer: Timer {
         interval: StageConfigService.engageDelay
@@ -1286,6 +1291,7 @@ PanelWindow {
         const prevDispatchedAt = root._lastDispatchedAt
         root._lastDispatchedKey = entry.appKey
         root._lastDispatchedAt = Date.now()
+        root._lastEngageDispatchAt = Date.now()
         // 模式关闭/面板隐藏后不派发（入队与派发之间有 engageDelay 窗口）。
         // ⚠️ 必须复位队首卡的 engaging：入队时已置 true（opacity 0 隐形），
         // 清队列不交还＝面板重开后该卡永久隐形且热区还在

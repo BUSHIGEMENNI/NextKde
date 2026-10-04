@@ -176,6 +176,12 @@ Item {
     //= 没有任何信号触发发布，特效按旧角度+旧 rightSide 画到下一次
     // hover 才纠正（"切侧后倾斜角不对、划一下鼠标就好"的根因）
     onRightSideChanged: livePoseDirty()
+    // engaging 翻转也必须挂：deskReveal 放出/撤销看门狗/拖拽中心等路径
+    // 只置 slot.cardItem.engaging 就去激活窗口，无姿态变化＝零发布触发
+    //——engaging=true 永远进不了载荷，特效按满 alpha 等 600ms 缺席迟滞
+    //再 150ms 淡出＝放大后旧卡位残影一闪（v80 交棒淡出在这些路径从未
+    // 生效的真因；窗口还原销毁委托比下一次发布更快，标记必须同拍出帧）
+    onEngagingChanged: livePoseDirty()
     // v2：发布**静止姿态** + 卡面元数据。悬停放大/压平动画不再由 QML
     // 驱动（特效 cursorPos 自驱，同管线像素级同步）——这里除放
     // card.scale（TopLeft 变换原点下原点不动，仅 w/h 回到静止尺寸），

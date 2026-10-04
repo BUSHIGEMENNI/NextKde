@@ -1303,6 +1303,17 @@ void StageAnimEffect::reloadLiveCards()
                 m_livePending.insert(eid);
                 continue;
             }
+            // 交棒期注册免入（v82）：窗口已还原/正在还原（载荷 engaging
+            // 或非最小化且有动画在飞）时注册＝全新卡入场动画在原槽位闪
+            // 现，发布流随即丢弃 → 残影一闪（journal 实证：engage 瞬间
+            // "live card +"迟到注册待定卡）。此前未注册的多为 winId 陈旧
+            // 的待定卡，engage 让 rep 翻转、窗口变得可寻＝迟到注册。留在
+            // 待定：真重新最小化（非 engaging 载荷）时正常注册
+            if (emeta.engaging || (!w->isMinimized()
+                    && m_animations.contains(w))) {
+                m_livePending.insert(eid);
+                continue;
+            }
             auto card = QSharedPointer<LiveCard>::create();
             card->id = std::get<0>(e);
             card->window = w;
