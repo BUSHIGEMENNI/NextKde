@@ -372,9 +372,11 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
                 card.fadeAnimating = false;
                 anyAnim = true;
             } else if (card.alpha < 0.999 && !card.fadeAnimating
+                       && !card.engaging
                        && !m_animations.contains(card.window)) {
                 // 自愈看门狗：任何原因卡死在低透明度（飞行结束/状态错位）
-                // → 淡回来。engaging 完成的卡随后会被发布侧正常注销。
+                // → 淡回来。⚠️ 必须跳过 engaging 卡：交棒末尾 alpha=0 是
+                // 正常状态（即将注销），治愈它＝淡入又淡出的闪烁（v62 事故）
                 card.alphaFrom = card.alpha;
                 card.alphaTo = 1.0;
                 card.fadeTl = TimeLine(std::chrono::milliseconds(180));
