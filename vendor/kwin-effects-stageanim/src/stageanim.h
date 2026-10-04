@@ -196,6 +196,18 @@ private:
     bool expireAbsentLiveCards(); // 缺席超时踢除：对 m_liveWanted 钟控评估（不依赖发布文件再变）
     void renderLiveTexture(LiveCard &card);
     void drawLiveCards(const RenderTarget &renderTarget, const RenderViewport &viewport);
+    // drawLiveCards 拆分（306 行巨函数＝历次回归高发区）：单 pass 原语 /
+    // 投影外接框 / 单卡全 pass 序列。全部纯搬运，行为零变化
+    void liveCardPass(const RenderViewport &viewport, qreal dpr, GLShader &sh,
+                      const LiveCardPose &pose, qreal ix, qreal iy, qreal iw,
+                      qreal ih, const QVector2D &fanOff, bool fanOnly,
+                      const QColor &tint, const QColor &border,
+                      qreal borderWidth, qreal depthG, qreal topLight,
+                      GLTexture *tex, qreal alpha, qreal hoverBlend = 0.0,
+                      float sideRight = 0.0f);
+    QRectF cardBodyQuad(const LiveCardPose &pose, qreal fanMax, qreal dpr) const;
+    void drawLiveCardBody(const RenderViewport &viewport, qreal dpr,
+                          LiveCard &card, quint32 &paintable);
     void writeLiveStatus();
     bool liveCardPaintable(const LiveCard &card) const;
     static LiveCardPose lerpPose(const LiveCardPose &a, const LiveCardPose &b, qreal t);

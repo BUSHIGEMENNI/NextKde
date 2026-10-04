@@ -2429,12 +2429,10 @@ PanelWindow {
                 // 悬停键不在模型里 = 该组已离开侧栏（被点开）但指针没动——
                 // 卡片自身辉光（MouseArea 还悬着）而布局回基础态 = "辉光但
                 // 不放大"。自愈：清掉追踪键；delegate 行字段就地换主时由
-                // onAppKeyChanged 重报悬停
-                if (root.hoveredKey !== "" && h < 0) {
-                    console.warn("[StageSidebar] hovered key left sidebar: "
-                        + root.hoveredKey)
+                // onAppKeyChanged 重报悬停（adaptive 无悬停语义，同款自愈
+                // 在 syncCards 共用入口）
+                if (root.hoveredKey !== "" && h < 0)
                     root.hoveredKey = ""
-                }
             }
             const heightEpochChanged = cards.height !== root._layoutHeight
             root._layoutHeight = cards.height
@@ -2453,81 +2451,12 @@ PanelWindow {
                     ? cardRepeater.itemAt(h).mapToItem(cards, 0, 0).y
                     : undefined,
             })
-            // 拖拽排序：被拖卡跟手（y=dragY），其余按"抽出再插回目标槽"
-            // 的预览顺序落基础槽位（让位实时可见）；槽位 z 抬满、微放大
+            const opts = _layoutOptsScroll(lay)
             const dragging = root.dragKey !== ""
             for (let i = 0; i < n; i++) {
                 const slot = cardRepeater.itemAt(i)
-                if (!slot)
-                    continue
-                if (dragging) {
-                    slot.placed = true
-                    if (i === root.dragFromIndex) {
-                        slot.y = root.dragY
-                        slot.slotScale = StageGeo.DRAG_SCALE
-                        // x 跟手：纵向拖拽停在列内（抓取偏移钳制），拖向
-                        // 屏幕中心时卡随指针横移（中心合并手势的实体感）
-                        slot.slotX = root._dragClampX(slot)
-                        slot.z = StageGeo.DRAG_Z
-                        slot.dimmed = false
-                        continue
-                    }
-                    // 合并悬停中：其余卡钉在各自基础槽位（目标卡不能从
-                    // 指针下移走），只高亮目标（dropHovered 走 delegate 绑定）
-                    if (root._dropMergeKey !== "") {
-                        slot.y = lay.positions[i] ?? 0
-                        slot.slotScale = 1
-                        slot.slotX = (cards.width - slot.width) / 2
-                            + StageGeo.GLOW_PAD
-                        slot.z = n - i
-                        slot.dimmed = false
-                        continue
-                    }
-                    // 合并候选钉位：候选卡不被插入预览挤走（钉在自己的
-                    // 基础槽位，被拖卡悬停在它上方 = "叠上去"的合并隐喻）；
-                    // 其余卡照常让位——预览全程单状态，无"过卡归位/过缝
-                    // 让位"的来回翻转（实测抽搐+掉帧的根源）
-                    if (root._mergeCandidate !== ""
-                            && slot.appKey === root._mergeCandidate) {
-                        slot.y = lay.positions[i] ?? 0
-                        slot.slotScale = lay.scales[i] ?? 1
-                        slot.slotX = (cards.width
-                            - slot.width * slot.slotScale) / 2
-                            + StageGeo.GLOW_PAD
-                        slot.z = n - i
-                        slot.dimmed = false
-                        continue
-                    }
-                    let pi = i < root.dragFromIndex ? i : i - 1
-                    if (pi >= root.dragToIndex)
-                        pi += 1
-                    slot.y = lay.positions[pi] ?? 0
-                    slot.slotScale = lay.scales[pi] ?? 1
-                    slot.slotX = (cards.width - slot.width * slot.slotScale) / 2
-                        + StageGeo.GLOW_PAD
-                    slot.z = n - pi
-                    slot.dimmed = false
-                    continue
-                }
-                // ⚠️ 悬停卡的 y 冻结（跳过赋值，scrollPass 除外）：聚焦
-                // 期间任何 y 位移都会把卡从指针下方带走 = kill 循环（五轮
-                // 排查的最终结论）。缩放/x 的变化是 TopLeft 外扩（区域只
-                // 向外长，卡内指针数学上不可能被挤出）；y 是唯一危险的
-                // 自由度，冻结到悬停解除。滚动轮次全员平移（见函数头）。
-                if (i !== h) {
-                    // 首拍落位：placed 尚为 false 时 Behavior 禁用，y 直接
-                    // 跳到槽位（新卡不播"列顶→槽位"滑入）；写完置位，后续
-                    // 重排照常动画。
-                    slot.y = lay.positions[i] ?? 0
-                    slot.placed = true
-                }
-                slot.slotScale = lay.scales[i] ?? 1
-                // +GLOW_PAD：slot 在放宽的视口里，补偿视口 x 偏移保持视觉位置
-                slot.slotX = (cards.width - slot.width * slot.slotScale) / 2
-                    + StageGeo.GLOW_PAD
-                slot.z = lay.zs[i] ?? 1
-                // 压暗走 dimmed 属性（opacity 由 dimmed × edgeFade 绑定合成）
-                slot.dimmed = !!lay.dims[i]
+                if (slot)
+                    _applySlotLayout(slot, i, n, lay, dragging, h, opts)
             }
             // 滚动状态回填：槽距（滚轮步进）+ 上限（clamp；卡数变化后
             // 收敛滚动位置，超限回落触发一轮再布局）
@@ -2539,66 +2468,109 @@ PanelWindow {
             scheduleLivePublish()
             return
         }
+        // adaptive：等比缩小全显（无悬停冻结/无逐卡 dims，z 按 n−i）
         const lay = _layout(n)
+        const opts = {
+            scaleAt: function() { return lay.scale },
+            armedScale: function() { return lay.scale },
+            restZ: function(i) { return n - i },
+            dimAt: function() { return false },
+        }
         const dragging = root.dragKey !== ""
         for (let i = 0; i < n; i++) {
             const slot = cardRepeater.itemAt(i)
-            if (!slot)
-                continue
-            if (dragging) {
-                slot.placed = true
-                if (i === root.dragFromIndex) {
-                    slot.y = root.dragY
-                    slot.slotScale = StageGeo.DRAG_SCALE
-                    // x 跟手（adaptive 分支同款，见 scroll 分支注释）
-                    slot.slotX = root._dragClampX(slot)
-                    slot.z = StageGeo.DRAG_Z
-                    slot.dimmed = false
-                    continue
-                }
-                if (root._dropMergeKey !== "") {
-                    slot.y = lay.positions[i] ?? 0
-                    slot.slotScale = lay.scale
-                    slot.slotX = (cards.width - slot.width * lay.scale) / 2
-                        + StageGeo.GLOW_PAD
-                    slot.z = n - i
-                    slot.dimmed = false
-                    continue
-                }
-                // 合并候选钉位（scroll 分支同款，见该处注释）
-                if (root._mergeCandidate !== ""
-                        && slot.appKey === root._mergeCandidate) {
-                    slot.y = lay.positions[i] ?? 0
-                    slot.slotScale = lay.scales?.[i] ?? lay.scale ?? 1
-                    slot.slotX = (cards.width
-                        - slot.width * slot.slotScale) / 2
-                        + StageGeo.GLOW_PAD
-                    slot.z = n - i
-                    slot.dimmed = false
-                    continue
-                }
-                let pi = i < root.dragFromIndex ? i : i - 1
-                if (pi >= root.dragToIndex)
-                    pi += 1
-                slot.y = lay.positions[pi] ?? 0
-                slot.slotScale = lay.scale
-                slot.slotX = (cards.width - slot.width * lay.scale) / 2
-                    + StageGeo.GLOW_PAD
-                slot.z = n - pi
-                slot.dimmed = false
-                continue
-            }
-            // 首拍落位（scroll 分支同款：placed 为 false 时 Behavior 禁用）
-            slot.y = lay.positions[i] ?? 0
-            slot.placed = true
-            slot.slotScale = lay.scale
-            slot.slotX = (cards.width - slot.width * lay.scale) / 2
-                + StageGeo.GLOW_PAD
-            slot.z = n - i
-            slot.dimmed = false
+            if (slot)
+                _applySlotLayout(slot, i, n, lay, dragging, -1, opts)
         }
         _updateHitRegionExtent()
         scheduleLivePublish()
+    }
+
+    // scroll 分支的 opts：逐卡缩放（deckSidePeek 递减）、武装态回 1、
+    // 静止 z/dims 走布局产物
+    function _layoutOptsScroll(lay) {
+        return {
+            scaleAt: function(idx) { return lay.scales[idx] ?? 1 },
+            armedScale: function() { return 1 },
+            restZ: function(i) { return lay.zs[i] ?? 1 },
+            dimAt: function(i) { return !!lay.dims[i] },
+        }
+    }
+
+    // 布局应用（scroll/adaptive 共用体）：拖拽四态（被拖跟手/武装钉位/
+    // 候选钉位/插入预览）+ 静止态。分支差异全部经 opts 参数化：
+    //   scaleAt(idx) 逐槽缩放；armedScale 武装态缩放（scroll=1/adaptive=
+    //   统一 scale）；restZ 静止 z；dimAt 压暗。h = 悬停行（scroll 非
+    //   滚动轮；-1 = 无/不冻结——adaptive 与滚动轮天然走该值）
+    function _applySlotLayout(slot, i, n, lay, dragging, h, opts)
+    {
+        if (dragging) {
+            slot.placed = true
+            if (i === root.dragFromIndex) {
+                slot.y = root.dragY
+                slot.slotScale = StageGeo.DRAG_SCALE
+                // x 跟手：纵向拖拽停在列内（抓取偏移钳制），拖向屏幕中心
+                // 时卡随指针横移（中心合并手势的实体感）
+                slot.slotX = root._dragClampX(slot)
+                slot.z = StageGeo.DRAG_Z
+                slot.dimmed = false
+                return
+            }
+            // 合并悬停中：其余卡钉在各自基础槽位（目标卡不能从指针下
+            // 移走），只高亮目标（dropHovered 走 delegate 绑定）
+            if (root._dropMergeKey !== "") {
+                slot.y = lay.positions[i] ?? 0
+                slot.slotScale = opts.armedScale()
+                slot.slotX = (cards.width
+                    - slot.width * slot.slotScale) / 2 + StageGeo.GLOW_PAD
+                slot.z = n - i
+                slot.dimmed = false
+                return
+            }
+            // 合并候选钉位：候选卡不被插入预览挤走（钉在自己的基础槽位，
+            // 被拖卡悬停在它上方 = "叠上去"的合并隐喻）；其余卡照常让位
+            // ——预览全程单状态，无"过卡归位/过缝让位"的来回翻转
+            //（实测抽搐+掉帧的根源）
+            if (root._mergeCandidate !== ""
+                    && slot.appKey === root._mergeCandidate) {
+                slot.y = lay.positions[i] ?? 0
+                slot.slotScale = opts.scaleAt(i)
+                slot.slotX = (cards.width
+                    - slot.width * slot.slotScale) / 2 + StageGeo.GLOW_PAD
+                slot.z = n - i
+                slot.dimmed = false
+                return
+            }
+            // 插入预览：按"抽出再插回目标槽"的序号重映射落基础槽位
+            let pi = i < root.dragFromIndex ? i : i - 1
+            if (pi >= root.dragToIndex)
+                pi += 1
+            slot.y = lay.positions[pi] ?? 0
+            slot.slotScale = opts.scaleAt(pi)
+            slot.slotX = (cards.width
+                - slot.width * slot.slotScale) / 2 + StageGeo.GLOW_PAD
+            slot.z = n - pi
+            slot.dimmed = false
+            return
+        }
+        // ⚠️ 悬停卡的 y 冻结（跳过赋值，scrollPass 除外——滚动轮 h 恒 -1
+        // 天然全员平移）：聚焦期间任何 y 位移都会把卡从指针下方带走 =
+        // kill 循环（五轮排查的最终结论）。缩放/x 的变化是 TopLeft 外扩
+        //（区域只向外长，卡内指针数学上不可能被挤出）；y 是唯一危险的
+        // 自由度，冻结到悬停解除。
+        if (i !== h) {
+            // 首拍落位：placed 尚为 false 时 Behavior 禁用，y 直接跳到槽
+            // 位（新卡不播"列顶→槽位"滑入）；写完置位，后续重排照常动画。
+            slot.y = lay.positions[i] ?? 0
+            slot.placed = true
+        }
+        slot.slotScale = opts.scaleAt(i)
+        // +GLOW_PAD：slot 在放宽的视口里，补偿视口 x 偏移保持视觉位置
+        slot.slotX = (cards.width - slot.width * slot.slotScale) / 2
+            + StageGeo.GLOW_PAD
+        slot.z = opts.restZ(i)
+        // 压暗走 dimmed 属性（opacity 由 dimmed × edgeFade 绑定合成）
+        slot.dimmed = opts.dimAt(i)
     }
     // 根窗口 onHeightChanged 不另设：cards 锚满窗体（上下留辉光余量），
     // 窗高变化必然带动 cards 高度 → cards.onHeightChanged 已覆盖，同帧
