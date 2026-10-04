@@ -359,24 +359,8 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
         std::sort(order.begin(), order.end(),
                   [](const LiveCard *a, const LiveCard *b) { return a->z > b->z; });
         bool anyAnim = false;
-        const qint64 blendNow = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
         for (LiveCard *cp : order) {
             LiveCard &card = *cp;
-            if (card.spawnAtMs > 0 && blendNow < card.spawnAtMs) {
-                card.alpha = 0.0;   // 迸开错峰：本张的入场还没到拍
-                anyAnim = true;
-                continue;
-            }
-            if (card.spawnDelayMs > 0) {
-                // 本张到拍：时间线从此刻起表（hover/fade 的 advance 在后
-                // 文，用负进度保持"未开始"）
-                card.hoverTl = TimeLine(card.hoverMs);
-                card.fadeTl = TimeLine(card.enterInstant
-                    ? card.animMs : card.enterMs);
-                card.spawnDelayMs = 0;
-                card.spawnAtMs = 1; // 标记进入侧滑绘制分支
-            }
             if (card.dragging || card.engaging || anyDragging) {
                 if (card.hovered && card.hoverAnimating) {
                     // 拖拽开始时优雅退场（不再瞬跳）
@@ -974,7 +958,7 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
     if (overflow)
         rowW += igap + 56;
     int ix0 = card.rightSide ? w * 2 - 10 - rowW : 10;
-    const int iy0 = h * 2 - isz + 10; // bottomMargin -5 微探出
+    const int iy0 = h * 2 - isz - 8; // 完整收进卡内（用户定稿"直接上移"）
     for (int i = 0; i < visible; i++) {
         const QString &src = icons.at(i);
         QPixmap pm;
@@ -1186,17 +1170,7 @@ void StageAnimEffect::reloadLiveCards()
             // 入场动画（老 QML 收编入场完整迁移）：x 侧滑 ±70（OutCubic）
             // + 淡入 OutCubic（enterInstant=飞行时长 animMs/普通=enterMs）
             // + 0.86 长到 1（OutBack）+ 拆分迸开错峰 70ms
-            static qint64 s_lastSpawnAt = 0;
-            static int s_spawnBurst = 0;
-            const qint64 spawnNow = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch()).count();
-            if (spawnNow - s_lastSpawnAt < 200)
-                s_spawnBurst++;   // 同批迸开：每张 +70ms
-            else
-                s_spawnBurst = 0;
-            s_lastSpawnAt = spawnNow;
-            card->spawnDelayMs = s_spawnBurst * 70;
-            card->spawnAtMs = spawnNow + card->spawnDelayMs;
+            card->spawnAtMs = 1; // 入场中标记（hoverTl 完成时清零）
             card->alpha = 0.0;
             card->alphaFrom = 0.0;
             card->alphaTo = 1.0;
@@ -1651,19 +1625,8 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         // 扇叠 ×1.4：hover 或武装/驻留都扩（老 dropHovered 同款）
         const bool fanSpread = card.hovered || armed || hinted;
 
-        // 0) 悬停辉光（外扩画布；alpha=hoverBlend 动画，画在最底层）
-        if (card.glowTex && card.hoverBlend > 0.01) {
-            LiveCardPose gpose = pose;
-            const qreal pad = 24.0 * dpr;
-            gpose.rect = QRectF(pose.rect.left() - pad, pose.rect.top() - pad,
-                                pose.rect.width() + pad * 2,
-                                pose.rect.height() + pad * 2);
-            // 辉光画布 = 卡面外扩 24：外接框同款外扩
-            drawPass(*m_liveShader, gpose,
-                     ix - pad, iy - pad, iw + pad * 2, ih + pad * 2,
-                     QVector2D(0, 0), false, QColor(), QColor(), 0, 0, 0,
-                     card.glowTex.get(), fadeMul * card.hoverBlend);
-        }
+        // 0) 辉光 pass 已撤（v57）：光栅环带在投影视口下渲染异常＝
+        //    "奇怪的光影"；悬停视觉先由边框蓝+提亮+深度淡出承担
         // 1) 扇叠背板（同应用多窗：min(count-1,2) 张，向左上探出；悬停
         //    间距 ×1.4 = QML"卡片簇吸气"反馈）
         const int fans = std::min(card.count - 1, 2);
