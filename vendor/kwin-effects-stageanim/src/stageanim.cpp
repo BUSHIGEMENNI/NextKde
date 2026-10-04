@@ -193,12 +193,12 @@ StageAnimEffect::StageAnimEffect()
     connect(m_liveWatcher, &QFileSystemWatcher::fileChanged, this, [this]() {
         if (!m_liveWatcher->files().contains(m_livePath))
             m_liveWatcher->addPath(m_livePath);
-        QTimer::singleShot(30, this, &StageAnimEffect::reloadLiveCards);
+        QTimer::singleShot(16, this, &StageAnimEffect::reloadLiveCards);
     });
     connect(m_liveWatcher, &QFileSystemWatcher::directoryChanged, this, [this]() {
         if (!m_liveWatcher->files().contains(m_livePath))
             m_liveWatcher->addPath(m_livePath);
-        QTimer::singleShot(30, this, &StageAnimEffect::reloadLiveCards);
+        QTimer::singleShot(16, this, &StageAnimEffect::reloadLiveCards);
     });
     m_liveStaleTimer.setInterval(10000);
     connect(&m_liveStaleTimer, &QTimer::timeout, this, &StageAnimEffect::reloadLiveCards);
@@ -657,13 +657,11 @@ void StageAnimEffect::reloadLiveCards()
 {
     QSet<QString> wanted;
     QVector<QPair<QString, LiveCardPose>> entries;
-    qint64 publishedAt = 0;
     QFile f(m_livePath);
     if (f.open(QIODevice::ReadOnly)) {
         const auto doc = QJsonDocument::fromJson(f.readAll());
         if (!doc.isNull()) {
             const auto obj = doc.object();
-            publishedAt = obj.value(QStringLiteral("at")).toInteger();
             const auto arr = obj.value(QStringLiteral("cards")).toArray();
             for (const auto &v : arr) {
                 const auto o = v.toObject();
@@ -686,11 +684,18 @@ void StageAnimEffect::reloadLiveCards()
             }
         }
     }
-    // 心跳超时（shell 死亡/停摆）：撤销全部引用，status 置 inactive
-    if (publishedAt > 0
-        && QDateTime::currentMSecsSinceEpoch() - publishedAt > 45000) {
-        wanted.clear();
-        entries.clear();
+    // 心跳超时（shell 死亡/停摆）：撤销全部引用，status 置 inactive。
+    // 用文件 mtime 判活（'at' 字段实测间歇落进陈旧值；mtime 由内核在
+    // writePath 落盘时盖章，可靠）。25s = 心跳 15s 的 1.7 倍容错
+    {
+        const QFileInfo info(m_livePath);
+        if (!info.exists()
+            || QDateTime::currentMSecsSinceEpoch()
+                    - info.lastModified().toMSecsSinceEpoch()
+                > 25000) {
+            wanted.clear();
+            entries.clear();
+        }
     }
     if (!m_liveEnabled) {
         wanted.clear();
@@ -728,7 +733,7 @@ void StageAnimEffect::reloadLiveCards()
             card->window = w;
             card->target = e.second;
             card->from = e.second; // 首次直接落位（与卡片淡入同拍）
-            card->ease = TimeLine(std::chrono::milliseconds(220));
+            card->ease = TimeLine(std::chrono::milliseconds(80));
             card->dirty = true;
             if (w->window()) {
                 w->window()->refOffscreenRendering();
@@ -774,12 +779,20 @@ void StageAnimEffect::reloadLiveCards()
                 || std::abs(card.target.yOff - e.second.yOff) > 0.5
                 || std::abs(card.target.radius - e.second.radius) > 0.5;
             if (poseChanged) {
-                qCWarning(STAGEANIM_LOG) << "live pose change" << e.first.left(8)
-                                         << card.target.rect << "->" << e.second.rect
-                                         << "yOff" << card.target.yOff << "->" << e.second.yOff;
+                // 16ms 发布节拍下姿态流是逐帧的（含 QML 悬停 OutBack 过冲），
+                // 缓动只负责抹平取整抖动——80ms 短跟随；日志只记大位移
+                //（逐帧姿态流会灌爆 journal）
+                const bool bigMove = (card.target.rect.topLeft()
+                        - e.second.rect.topLeft()).manhattanLength() > 12
+                    || std::abs(card.target.angleDeg - e.second.angleDeg) > 2.0
+                    || std::abs(card.target.yOff - e.second.yOff) > 8.0;
+                if (bigMove)
+                    qCWarning(STAGEANIM_LOG) << "live pose change" << e.first.left(8)
+                                             << card.target.rect << "->" << e.second.rect
+                                             << "yOff" << card.target.yOff << "->" << e.second.yOff;
                 card.from = currentPose(card);
                 card.target = e.second;
-                card.ease = TimeLine(std::chrono::milliseconds(220));
+                card.ease = TimeLine(std::chrono::milliseconds(80));
                 card.ease.setDirection(TimeLine::Forward);
                 card.easing = true;
             }
@@ -913,10 +926,11 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
     //＝桌面崩溃（2026-10-03 事故元凶）。重拍全部发生在非绘制时机
     //（损伤回调/注册/状态心跳）。
 
-    // 2) 着色器（惰性编译；失败一次不再重试）
-    static bool shaderTried = false;
-    if (!m_liveShader && !shaderTried) {
-        shaderTried = true;
+    // 2) 着色器（惰性编译；⚠️ 失败重试必须挂实例成员——static 闩锁跨
+    // 实例共享（假卸载后同 .so 新实例继承闩锁），新实例 shader 为 null
+    // 又永不重试＝每帧静默早退＝整排黑卡（2026-10-04 早黑卡事故元凶）
+    if (!m_liveShader || !m_liveShader->isValid()) {
+        m_liveShader.reset();
         m_liveShader = ShaderManager::instance()->generateShaderFromFile(
             ShaderTrait::MapTexture,
             QStringLiteral(":/stageanim/shaders/stage-live.vert"),
@@ -926,8 +940,11 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         // 永不链接 → glUseProgram 全错 → quad 全空（全透明卡元凶）
         qCWarning(STAGEANIM_LOG) << "live shader created:"
                                  << (m_liveShader ? (m_liveShader->isValid() ? "valid" : "INVALID") : "null");
-        if (!m_liveShader || !m_liveShader->isValid())
+        if (!m_liveShader || !m_liveShader->isValid()) {
             qCWarning(STAGEANIM_LOG) << "live shader FAILED (need _core + ES variants in qrc)";
+            m_liveShader.reset();
+            return; // 下次绘制重试（每帧一次编译尝试仅在失败期发生）
+        }
     }
     if (!m_liveShader)
         return;
@@ -954,7 +971,6 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
             continue;
         }
         paintable++;
-        card.paintCount++;
         const LiveCardPose pose = currentPose(card);
 
         const qreal dpr = viewport.scale();
@@ -1021,7 +1037,7 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         // 直绘落屏探针：从当前输出帧缓冲读卡中心像素（glReadPixels 原点
         // 在左下 → y 翻转），与 FBO 内容对照；节流防刷屏
         card.paintCount++;
-        if (card.paintCount % 9000 == 1) {
+        if (card.paintCount % 300 == 1) {
             GLubyte sp[4] = {255, 0, 255, 255};
             const qreal devH = viewport.renderRect().height() * dpr;
             glReadPixels(int(pose.rect.center().x() * dpr),
@@ -1034,7 +1050,7 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         card.texture->unbind();
     }
     static quint32 s_pass = 0;
-    if (++s_pass % 9000 == 1)
+    if (++s_pass % 3000 == 1)
         qCWarning(STAGEANIM_LOG) << "live paint pass #" << s_pass
                                  << "paintable =" << paintable;
 }

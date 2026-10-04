@@ -129,25 +129,25 @@ Item {
     // plane 不可见子树吞 visible 改动，opacity 链实测有效）
     property bool livePainted: false
     // 活体卡发布参数（StageSidebarWindow.publishLiveCards 消费）：
-    // 终态卡面矩形 + 透视参数。复合缩放 = slot.slotScale（布局态，发布
-    // 时刻稳定）× 悬停终态缩放（TopLeft 外扩，与 slot 的缩放同向复合：
-    // 卡面终位 = 卡原点(经 slot 变换的屏幕映射) + 复合缩放 × plate 本地
-    // 偏移）。hovered 由窗口侧传入（hoveredKey 命中，与 tiltCur 绑定同
-    // 口径的终值；engaging 卡不发布）。
+    // 卡面矩形 + 透视参数。**发布动画中的实时值**（card.scale / tiltCur
+    // 都带 Behavior，悬停/入场期间逐帧变化）——旧版发终态值，特效按自己的
+    // 曲线追，而卡面走 OutBack 过冲曲线，两者中途必然脱节（"悬停时内容和
+    // 卡片不协调"）。配合 16ms 发布节拍 + 特效 80ms 短缓动，内容贴着卡面
+    // 动画走（滞后 ≤2 帧）。engaging 卡不发布。
+    signal livePoseDirty()
+    onScaleChanged: livePoseDirty()
+    onTiltCurChanged: livePoseDirty()
+    onXChanged: livePoseDirty()
     function liveCardPose(hovered): var {
-        const fs = hovered ? StageConfigService.hoverScale : 1.0
         const sc = (parent && parent.slotScale !== undefined
-            ? parent.slotScale : 1.0) * fs
+            ? parent.slotScale : 1.0) * card.scale
         const o = mapToItem(null, 0, 0)
-        const tiltFinal = scrollMode
-            ? (hovered ? 0 : StageConfigService.deckRestTilt)
-            : (hovered ? StageConfigService.tiltAngle : 0)
         return {
             x: Math.round(o.x + sc * plate.x),
             y: Math.round(o.y + sc * plate.y),
             w: Math.round(sc * plate.width),
             h: Math.round(sc * plate.height),
-            angle: card.rightSide ? -tiltFinal : tiltFinal,
+            angle: card.rightSide ? -card.tiltCur : card.tiltCur,
             yOff: card.perspectiveYOff,
             focal: StageGeo.TILT_FOCAL,
             radius: StageConfigService.cardRadius,

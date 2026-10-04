@@ -897,16 +897,22 @@ PanelWindow {
         _livePublishTimer.restart()
     }
     property Timer _livePublishTimer: Timer {
-        interval: 60
+        // 16ms = 逐帧节拍：卡片动画期间 livePoseDirty 持续触发，发布的
+        // 姿态流含 QML 动画全程（含 OutBack 过冲），特效 80ms 短缓动贴着走
+        interval: 16
         onTriggered: root.publishLiveCards()
     }
-    // 心跳：开着侧栏时周期重写（特效侧 45s 陈旧判据的另一半）
+    // 心跳：开着侧栏时周期重写（特效侧 25s mtime 陈旧判据的另一半）
     property Timer _liveHeartbeat: Timer {
         interval: 15000
         running: root.open
         repeat: true
         onTriggered: root.publishLiveCards()
     }
+    // 条带销毁时立即清空发布（特效 16ms 内撤四边形）——否则 shell 重启/
+    // 关闭的空窗期里，活体内容按最后一帧姿态悬空画在桌面上（"内容悬浮
+    // 不在卡片中"的元凶之一）。开合的清空发布走既有 onOpenChanged（尾部）。
+    Component.onDestruction: root.publishLiveCards()
 
     function publishLiveCards() {
         const cards = []
@@ -1952,6 +1958,8 @@ PanelWindow {
                     onIconActivated: function(windowId) {
                         root.engageCardWindow(slot, windowId)
                     }
+                    // 卡片动画（scale/tilt/x Behavior）期间逐帧发布活体姿态
+                    onLivePoseDirty: root.scheduleLivePublish()
                 }
             }
         }
