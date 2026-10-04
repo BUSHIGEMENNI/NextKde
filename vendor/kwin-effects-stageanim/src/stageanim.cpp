@@ -361,6 +361,15 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
         bool anyAnim = false;
         for (LiveCard *cp : order) {
             LiveCard &card = *cp;
+            // 交棒同步：本卡的窗口正在展开飞行 → 卡的透明度 = 1-飞行进度
+            //（窗口盖过来的同时卡渐隐，起点终点两头严丝合缝）
+            if (card.window && m_animations.contains(card.window)) {
+                const qreal p = qBound(0.0,
+                    m_animations.value(card.window).timeLine.value(), 1.0);
+                card.alpha = 1.0 - p;
+                card.fadeAnimating = false;
+                anyAnim = true;
+            }
             if (card.dragging || card.engaging || anyDragging) {
                 if (card.hovered && card.hoverAnimating) {
                     // 拖拽开始时优雅退场（不再瞬跳）
@@ -1253,13 +1262,10 @@ void StageAnimEffect::reloadLiveCards()
                 card.hoverBlend = 0.0;
             }
             if (card.engaging && !wasEngaging) {
-                // 展开交棒（老 QML 语义完整迁移）：淡出 180ms（ENGAGE_FADE_MS）
-                // 的同时缩回静止尺寸/倾角——窗口从基础矩形长出，卡若停在
-                // 悬停放大位只做淡出 = 尺寸断层（"开始不是同时"的割裂感）
-                card.alphaFrom = card.alpha;
-                card.alphaTo = 0.0;
-                card.fadeTl = TimeLine(std::chrono::milliseconds(180));
-                card.fadeAnimating = true;
+                // 展开交棒：卡面**不独立淡出**——alpha 由窗口飞行进度驱动
+                //（窗口长到哪卡隐到哪，同一条时间线＝"从卡里长出来"的整体
+                // 感；独立 180ms 淡出会在 420ms 飞行中段留空＝割裂）。
+                // 收缩对齐保留：缩回静止尺寸/倾角与飞行起点矩形对齐。
                 card.scaleFrom = card.curScale;
                 card.scaleTo = 1.0;
                 card.tiltFrom = card.curTiltDeg;
