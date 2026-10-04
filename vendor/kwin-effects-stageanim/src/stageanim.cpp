@@ -361,14 +361,24 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
         bool anyAnim = false;
         for (LiveCard *cp : order) {
             LiveCard &card = *cp;
-            // 交棒同步：本卡的窗口正在展开飞行 → 卡的透明度 = 1-飞行进度
-            //（窗口盖过来的同时卡渐隐，起点终点两头严丝合缝）
-            if (card.window && m_animations.contains(card.window)) {
+            // 交棒同步：**仅展开方向**（engaging 还在发布里＝还原飞行中）
+            // → 卡的透明度 = 1-飞行进度。⚠️ 不能只判 m_animations 含本窗：
+            // 收编（最小化）飞行也在里面，会把新卡反向淡出（窗口飞近卡
+            // 渐隐）＝"全部卡片消失"的元凶（v61 事故）。
+            if (card.engaging && card.window && m_animations.contains(card.window)) {
                 const qreal p = qBound(0.0,
                     m_animations.value(card.window).timeLine.value(), 1.0);
                 card.alpha = 1.0 - p;
                 card.fadeAnimating = false;
                 anyAnim = true;
+            } else if (card.alpha < 0.999 && !card.fadeAnimating
+                       && !m_animations.contains(card.window)) {
+                // 自愈看门狗：任何原因卡死在低透明度（飞行结束/状态错位）
+                // → 淡回来。engaging 完成的卡随后会被发布侧正常注销。
+                card.alphaFrom = card.alpha;
+                card.alphaTo = 1.0;
+                card.fadeTl = TimeLine(std::chrono::milliseconds(180));
+                card.fadeAnimating = true;
             }
             if (card.dragging || card.engaging || anyDragging) {
                 if (card.hovered && card.hoverAnimating) {
