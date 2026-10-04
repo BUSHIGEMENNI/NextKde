@@ -1124,7 +1124,7 @@ void StageAnimEffect::reloadLiveCards()
         }
         if ((*it)->absentSinceMs == 0)
             (*it)->absentSinceMs = nowSteady;
-        if (nowSteady - (*it)->absentSinceMs > 350)
+        if (nowSteady - (*it)->absentSinceMs > 600)
             drop.append(it.key());
     }
     for (const QString &id : drop) {
@@ -1249,6 +1249,15 @@ void StageAnimEffect::reloadLiveCards()
             LiveCard &card = **it;
             const bool wasEngaging = card.engaging;
             applyCardMeta(card, std::get<2>(e));
+            if (!card.engaging && wasEngaging) {
+                // 展开被打断/反悔（快速连点切换目标）：卡面必须淡回来——
+                // 旧版淡到 0 后无回退路径＝卡永久隐形（"偶尔卡片消失"）
+                card.alphaFrom = card.alpha;
+                card.alphaTo = 1.0;
+                card.fadeTl = TimeLine(std::chrono::milliseconds(180));
+                card.fadeAnimating = true;
+                card.hoverBlend = 0.0;
+            }
             if (card.engaging && !wasEngaging) {
                 // 展开交棒（老 QML 语义完整迁移）：淡出 180ms（ENGAGE_FADE_MS）
                 // 的同时缩回静止尺寸/倾角——窗口从基础矩形长出，卡若停在
