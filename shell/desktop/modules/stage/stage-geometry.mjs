@@ -197,8 +197,12 @@ export function computeTargetRects(groups, lay, dims, records, prevRects) {
     for (let g = 0; g < groups.length; g++) {
         // 每组可有独立缩放（牌堆/聚焦态）；缺省用统一 scale（stack/adaptive）。
         // 缩放卡的 x 居中（与视图 slotX 同式），宽随缩放——矩形=可见卡面
-        const s = (lay.scales && lay.scales[g] !== undefined)
+        let s = (lay.scales && lay.scales[g] !== undefined)
             ? lay.scales[g] : (lay.scale ?? 1)
+        // NaN 防线（scrollLayout 同款）：?? 挡不住 NaN，坏值会让矩形变
+        // null → 特效飞行落点解析回退到兜底（"飞错位"家族）
+        if (!Number.isFinite(s) || s <= 0)
+            s = 1
         // 屏幕坐标 = 全屏浮层原点(0,0) + 列内 y——不加 PANEL_ORIGIN_Y
         //（全屏化前的旧窗原点常量，见其声明处注释）
         const y = Math.round(dims.columnY + (lay.positions[g] ?? 0))

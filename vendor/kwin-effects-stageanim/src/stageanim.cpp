@@ -372,7 +372,17 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
                     card.hoverTl = TimeLine(card.tiltMs);
                     card.hoverAnimating = true;
                 } else {
+                    // 与 armed 分支同款退场补间：只置 false 不动画会把
+                    // hoverBlend 卡死在 1.0（边框恒蓝/深度淡出锁死）
                     card.hovered = false;
+                    if (card.hoverBlend > 0.01 || card.curScale != 1.0) {
+                        card.scaleFrom = card.curScale;
+                        card.tiltFrom = card.curTiltDeg;
+                        card.scaleTo = 1.0;
+                        card.tiltTo = card.target.angleDeg;
+                        card.hoverTl = TimeLine(card.tiltMs);
+                        card.hoverAnimating = true;
+                    }
                 }
                 if (card.dragging) {
                     card.curScale = card.dragScale; // 老语义净放大 1.06×hover
@@ -669,7 +679,10 @@ void StageAnimEffect::postPaintScreen()
         }
     }
 
-    effects->addRepaintFull();
+    // 全屏重绘仅窗口动画期需要（承袭 MagicLamp）；live 卡常驻时恒刷会
+    // 让合成器永不息帧（90Hz 全屏重组），live 卡有自己的分区重绘
+    if (!m_animations.isEmpty())
+        effects->addRepaintFull();
 
     // Call the next effect.
     effects->postPaintScreen();
@@ -879,7 +892,7 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
         + QString::number(w) + QLatin1Char('x') + QString::number(h)
         + QLatin1Char(card.merged && card.chipHot ? 'C' : 'c')
         + QLatin1Char(card.rightSide ? 'R' : 'l');
-    if (key == card.chromeKey && card.chromeTex && card.glowTex
+    if (key == card.chromeKey && card.chromeTex
             && ovKey == card.overlayKey && card.overlayTex)
         return;
     card.chromeKey = key;
@@ -995,30 +1008,8 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
     op.end();
     card.overlayTex = upload(ov.mirrored(false, true));
 
-    // ── 悬停辉光（5 层薄步进光晕：opacity=cardGlow/2^i，外扩 6+i*5/8+i*7，
-    //    radius+4+i*4，蓝白 rgba(0.55,0.75,1.0)；静态光栅，alpha=hoverBlend
-    //    动画由绘制侧乘）──
-    QImage glow((w + 48) * 2, (h + 48) * 2, QImage::Format_ARGB32_Premultiplied);
-    glow.fill(Qt::transparent);
-    QPainter gp(&glow);
-    gp.setRenderHint(QPainter::Antialiasing, true);
-    gp.setBrush(Qt::NoBrush);
-    for (int i = 4; i >= 0; i--) {
-        const qreal a = card.cardGlow / std::pow(2.0, i);
-        if (a < 0.01)
-            continue;
-        gp.setPen(QPen(QColor(140, 191, 255, int(a * 255)), 6.0));
-        const int ex = (24 + 0) * 2 + 0; // 画布已含 24 逻辑 pad
-        const int gx = 24 * 2 + (i > 0 ? (6 + i * 5) * 2 : 0);
-        const int gy = 24 * 2 + (i > 0 ? (8 + i * 7) * 2 : 0);
-        const int gw = w * 2 + 2 * (gx - 24 * 2);
-        const int gh = h * 2 + 2 * (gy - 24 * 2);
-        gp.drawRoundedRect(QRect(gx, gy, gw, gh),
-                           (card.target.radius + 4 + i * 4) * 2,
-                           (card.target.radius + 4 + i * 4) * 2);
-    }
-    gp.end();
-    card.glowTex = upload(glow.mirrored(false, true));
+    // 辉光光栅已撤（v57 撤 pass，v60 删死代码；再启用需重做投影对齐）
+    card.glowTex.reset();
 }
 
 void StageAnimEffect::reloadLiveCards()
@@ -1029,8 +1020,11 @@ void StageAnimEffect::reloadLiveCards()
     if (f.open(QIODevice::ReadOnly)) {
         const auto doc = QJsonDocument::fromJson(f.readAll());
         // 撕裂/半写 → 保持现状直接返回（裸写无原子保证；掉卡只走空表/
-        // mtime 陈旧/迟滞路径，绝不因 parse 失败而掉）
-        if (!doc.isNull()) {
+        // mtime 陈旧/迟滞路径，绝不因 parse 失败而掉）——旧实现只是跳过
+        // 解析块，落入空 wanted＝600ms 后全体掉卡（与注释承诺相反）
+        if (doc.isNull())
+            return;
+        {
             const auto obj = doc.object();
             const auto arr = obj.value(QStringLiteral("cards")).toArray();
             for (const auto &v : arr) {
@@ -1542,6 +1536,7 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         }
         sh.setUniform("alpha", float(alpha));
         vbo->draw(GL_TRIANGLE_FAN, 0, 4);
+        vbo->unbindArrays(); // 头文件契约：与 bindArrays 成对（属性数组泄漏）
         if (tex)
             tex->unbind();
     };

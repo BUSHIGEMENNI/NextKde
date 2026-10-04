@@ -1112,8 +1112,17 @@ PanelWindow {
         const entry = root._engageQueue.shift()
         if (!entry)
             return
+        // 🔴 快照上一手派发（restoredInFlight 判定要用"上一个还原是谁"，
+        // 旧版先覆写再判定＝条件恒退化，快连点收错槽回归）
+        const prevDispatchedKey = root._lastDispatchedKey
+        const prevDispatchedAt = root._lastDispatchedAt
         root._lastDispatchedKey = entry.appKey
         root._lastDispatchedAt = Date.now()
+        // 模式关闭/面板隐藏后不派发（入队与派发之间有 engageDelay 窗口）
+        if (!StageModeService.enabled || !root.open) {
+            root._engageQueue = []
+            return
+        }
         // 退位判定在派发时刻做（点击到派发之间没有任何激活派发，活动窗
         // 未变；豁免规则与旧点击时刻版一致：同组/同应用/已最小化豁免）
         const demotedId = WindowService.activeWindowId
@@ -1133,8 +1142,8 @@ PanelWindow {
             // 2026-09-30 遥测实锤三连 demote=none）。600ms 窗口还原必落地。
             const dKey = dRec ? root._effKey(dRec) : ""
             const restoredInFlight = dKey !== ""
-                && dKey === root._lastDispatchedKey
-                && Date.now() - root._lastDispatchedAt < 600
+                && dKey === prevDispatchedKey
+                && Date.now() - prevDispatchedAt < 600
             const deskOwned =
                 root.deskCollectedIds.indexOf(demotedId) >= 0
             if (!deskOwned && !sameGroup
@@ -2566,7 +2575,14 @@ PanelWindow {
                 try {
                     const obj = JSON.parse(data)
                     if (obj && obj.merges && typeof obj.merges === "object") {
-                        root._mergeOverrides = obj.merges
+                        // 载入消毒："" 键（脏数据）会让 foreign 窗全塌一张卡
+                        const clean = {}
+                        for (const k in obj.merges) {
+                            const v = obj.merges[k]
+                            if (k !== "" && typeof v === "string")
+                                clean[k] = v
+                        }
+                        root._mergeOverrides = clean
                         syncCards()
                     }
                 } catch (e) {
