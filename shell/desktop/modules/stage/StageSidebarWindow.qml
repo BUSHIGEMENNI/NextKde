@@ -1399,6 +1399,10 @@ PanelWindow {
         // 布局会拖累跟手帧率
         slot.y = root.dragY
         slot.slotX = root._dragClampX(slot)
+        // 拖拽跟手发布（触摸友好）：特效侧拖拽卡画在发布矩形上——
+        // 光标钉位方案对触摸失效（触摸不动鼠标光标，卡会飞到光标
+        // 静止处＝"卡片飞到屏幕中间下方"的真相）。8ms 节流＋去重。
+        root.scheduleLivePublish()
         // 跟手排障遥测（真手拖动无头复现不了：事件层/掩码层只有真指针
         // 能测）：stage-config debugTrace 开启时 ~80ms 一条，读 px（指针
         // 列坐标）vs sx（实际 slotX）

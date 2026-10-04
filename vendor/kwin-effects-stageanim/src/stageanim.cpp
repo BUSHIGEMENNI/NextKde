@@ -1371,9 +1371,10 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
         const qreal fadeMul = card.alpha * card.fade; // 入退场 × 压暗/边缘渐隐
         const qreal sc = card.dragging ? 1.0 : card.curScale;
         if (card.dragging) {
-            const QPointF cur = effects->cursorPos();
-            pose.rect = QRectF(cur.x() - card.grabDX, cur.y() - card.grabDY,
-                               pose.rect.width(), pose.rect.height());
+            // 拖拽卡画在发布矩形上（QML 逐帧跟手发布，鼠标/触摸通吃）；
+            // 旧的光标钉位方案对触摸失效（触摸不动 cursorPos）
+            pose.rect = QRectF(pose.rect.topLeft(),
+                               QSizeF(pose.rect.width(), pose.rect.height()));
             pose.angleDeg = 0.0;
         } else {
             pose.rect = QRectF(pose.rect.topLeft(),
