@@ -2109,7 +2109,7 @@ PanelWindow {
                     appKey: slot.appKey
                     mergeAnimFromKey: root._mergeAnimPending
                         ? String(root._mergeAnimPending.from || "") : ""
-                    tiltScale: root._squeezeTiltScale
+                    tiltW: root._squeezeTiltW
                     targetId: slot.targetId
                     pid: slot.pid
                     appName: slot.appName
@@ -2324,15 +2324,18 @@ PanelWindow {
         onTriggered: root._drawerPeek = false
     }
 
-    // 挤压倾斜（自适应）：桌面**任意**可见窗越宽，卡列被"挤"得倾角越大
-    //（取最大窗宽/屏宽 r，scale=1+0.35r；总角在消费处钳 40°=特效上限）。
-    // ⚠️ 必须 placementRevision 锚定——①windowById 走内部缓存不通知；
-    // ②纯几何更新只递增 placementRevision（records 原地 mutate、revision
-    // 不动）＝"拉伸/移动窗口无感知"的根因
-    readonly property real _squeezeTiltScale: {
+    // 挤压倾斜（自适应）：桌面**任意**可见窗越宽，卡列被"挤"得倾角越大。
+    // 权重语义：w = min(1, 最大可见窗宽/屏宽)，角度 = 基准 + (40−基准)×w
+    //（空旷=基准角、满宽=40°，与面板文案逐字对应）。旧乘法 基准×(1+0.35r)
+    // 再钳 40 在基准≥30 时恒钳 40＝滑杆上半段死区（"立体"预设 40° 拖了
+    // 没反应的根因）；插值下任何基准<40 都有响应，基准=40 才恒满（用户
+    // 明确选满）。⚠️ 必须 placementRevision 锚定——①windowById 走内部
+    // 缓存不通知；②纯几何更新只递增 placementRevision（records 原地
+    // mutate、revision 不动）＝"拉伸/移动窗口无感知"的根因
+    readonly property real _squeezeTiltW: {
         WindowService.placementRevision
         if (!StageConfigService.adaptiveTilt)
-            return 1
+            return 0
         let w = 0
         const recs = WindowService.records || []
         for (let i = 0; i < recs.length; i++) {
@@ -2344,8 +2347,7 @@ PanelWindow {
             if (g && g.width > w)
                 w = g.width
         }
-        const ratio = root.width > 0 ? Math.min(1, Math.max(0, w / root.width)) : 0
-        return 1 + 0.35 * ratio
+        return root.width > 0 ? Math.min(1, Math.max(0, w / root.width)) : 0
     }
 
     // ── 侵占让位（拉伸感知）：可见桌面窗压住卡列区超阈值＝同样收抽屉 ──
