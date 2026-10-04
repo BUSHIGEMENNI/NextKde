@@ -117,7 +117,17 @@ export function decorateGroups(groups, thumbnailUrlOf) {
         grp.iconSource = rep.iconSource || ""
         grp.count = grp.wins.length
         grp.ids = grp.wins.map(w => w.windowId)
-        grp.icons = grp.wins.map(w => w.iconSource || "")
+        // 图标排按图标源去重：同应用多窗只留一枚（重复 N 个相同图标是
+        // 用户实测困惑点；窗口总数由标题 ×N 表达）。顺序保持首现序
+        const seen = new Set()
+        grp.icons = []
+        for (const w of grp.wins) {
+            const src = w.iconSource || ""
+            if (seen.has(src))
+                continue
+            seen.add(src)
+            grp.icons.push(src)
+        }
     }
     return groups
 }

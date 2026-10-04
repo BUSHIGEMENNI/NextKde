@@ -326,8 +326,10 @@ check("move 键缺失原样", moveOrderKey(["a", "b"], "z", 0), ["a", "b"]);
     check("group key is target", groups[0].key, "b");
     check("group merged flag", groups[0].merged, true);
     const rows = buildModelRows(decorateGroups(groups, () => ""));
-    check("row icons per window", JSON.parse(rows[0].iconsJson),
-        ["icon-a", "icon-b", "icon-a"]);
+    // 图标排按图标源去重（同应用多窗一枚，首现序）——重复 N 个相同
+    // 图标是用户实测困惑点；窗口总数由标题 ×N 表达
+    check("row icons deduped per app", JSON.parse(rows[0].iconsJson),
+        ["icon-a", "icon-b"]);
 
     // 拆散：组内覆盖全部清除
     ov = splitGroup(ov, recs, "b");

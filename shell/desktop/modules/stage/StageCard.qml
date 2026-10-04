@@ -111,6 +111,22 @@ Item {
             return []
         }
     }
+    // 图标排消费的对（icon, id）：按图标源去重——同应用多窗只留一枚
+    //（点击直达该应用首个窗口），窗口总数由标题 ×N 表达。不去重时
+    // 同应用合并卡会重复出现 N 个相同图标（用户实测困惑）
+    readonly property var iconPairs: {
+        const ids = windowIds
+        const icons = windowIcons
+        const seen = new Set()
+        const out = []
+        for (let i = 0; i < icons.length && i < ids.length; i++) {
+            if (seen.has(icons[i]))
+                continue
+            seen.add(icons[i])
+            out.push({ icon: icons[i], id: ids[i] })
+        }
+        return out
+    }
     // 图标排并列上限（stage-config maxIconSlots，设置页可调）；实际
     // 可见数还按卡宽动态封顶（见 iconRow.visibleCount），超出进 "+N"
     readonly property int maxIconSlots: StageConfigService.maxIconSlots
@@ -347,7 +363,7 @@ Item {
         // 探出。悬停时间距微扩（卡片簇"吸气"的即时反馈）。最多露 2 张，
         // 更多的用左下角图标排表达 ──
         Repeater {
-            model: Math.min(card.count - 1, 2)
+            model: Math.min(card.count - 1, 4)
             Rectangle {
                 required property int index
                 readonly property real off: (index + 1)
@@ -361,10 +377,10 @@ Item {
                 height: plate.height
                 radius: plate.radius
                 color: Qt.rgba(0.03, 0.05, 0.09,
-                    StageConfigService.cardTint * (0.85 - index * 0.25))
+                    StageConfigService.cardTint * (0.88 - index * 0.18))
                 border.width: 1
                 border.color: Qt.rgba(255, 255, 255,
-                    StageConfigService.cardBorder * (0.8 - index * 0.25))
+                    StageConfigService.cardBorder * (0.8 - index * 0.18))
                 opacity: card.engaging ? 0.0 : 1.0
                 Behavior on opacity { NumberAnimation { duration: 160 } }
                 Behavior on x { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
@@ -849,7 +865,11 @@ Item {
             height: 20
             radius: 10
             color: splitHit.containsMouse ? "#f59e0b" : "transparent"
-            opacity: (card.isHovered || card.mergeGlow) ? 1.0 : 0.0
+            // 常显暗态：合并卡要让用户知道能拆（与特效芯片同语义）；
+            // 活体模式特效覆盖层画右上同位芯片，QML 视觉隐藏防双绘
+            visible: !card.effectOwnedChrome
+            opacity: (splitHit.containsMouse || card.isHovered || card.mergeGlow)
+                ? 1.0 : 0.35
             Behavior on opacity { NumberAnimation { duration: 120 } }
 
             Rectangle {
@@ -889,7 +909,7 @@ Item {
         // 卡宽钳制：图标排不裁切（Item 默认不 clip），maxIconSlots×最大
         // 图标 40px 时 rowWidth 232 > 卡宽 216 会画出卡缘——按"排满卡宽
         // 能塞几枚"动态封顶（40px 图标 × 卡宽 216 → 4 枚），多的进 "+N"
-        readonly property int visibleCount: Math.min(card.windowIds.length,
+        readonly property int visibleCount: Math.min(card.iconPairs.length,
             card.maxIconSlots,
             Math.floor((card.width + iconGap) / (iconSize + iconGap)))
         readonly property real rowWidth:
@@ -923,7 +943,7 @@ Item {
                 height: iconRow.iconSize
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: card.iconActivated(card.windowIds[index])
+                onClicked: card.iconActivated(card.iconPairs[index].id)
                 Rectangle {
                     anchors.fill: parent
                     radius: width / 3
@@ -939,7 +959,7 @@ Item {
                         anchors.centerIn: parent
                         width: parent.width * 0.7
                         height: parent.width * 0.7
-                        source: card.windowIcons[index] || card.iconSource || ""
+                        source: card.iconPairs[index]?.icon || card.iconSource || ""
                         asynchronous: false
                     }
                 }
@@ -948,10 +968,10 @@ Item {
 
         // 更多窗口收进 "+N"（x 定位同上——不碰水平锚点）
         Text {
-            visible: card.windowIds.length > iconRow.visibleCount
+            visible: card.iconPairs.length > iconRow.visibleCount
             anchors.verticalCenter: parent.verticalCenter
             x: card.rightSide ? -width - 5 : parent.width + 5
-            text: "+" + (card.windowIds.length - iconRow.visibleCount)
+            text: "+" + (card.iconPairs.length - iconRow.visibleCount)
             color: Qt.rgba(1, 1, 1, 0.65)
             font { pixelSize: 10; weight: Font.DemiBold }
         }

@@ -123,6 +123,13 @@ struct LiveCard
     qreal scaleFrom = 1.0, scaleTo = 1.0, tiltFrom = 0, tiltTo = 0;
     TimeLine hoverTl{std::chrono::milliseconds(240)};
     bool hoverAnimating = false;
+    // 扇叠扩散补间（老 QML Behavior 140ms 同族）：hover/武装/驻留任一
+    // 即扩散，但都必须**缓动**过去——旧实现武装/驻留瞬时满扩（跳变＝
+    // "生硬"），悬停又只挂 hoverBlend（离开时与放大曲线耦合）
+    qreal fanBlend = 0.0;     // 0=收拢 1=全扩
+    qreal fanFrom = 0.0, fanTo = 0.0;
+    TimeLine fanTl{std::chrono::milliseconds(150)};
+    bool fanAnimating = false;
     // 入场/退场/engaging 淡变（alphaFrom→alphaTo）× QML 发布的 fade
     //（压暗 × 视口边缘渐隐）
     qreal alpha = 1.0;

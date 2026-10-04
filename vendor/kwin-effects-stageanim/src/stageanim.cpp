@@ -481,6 +481,31 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
                 }
                 anyAnim = true;
             }
+            // 扇叠扩散补间：hover/武装(dropHover)/驻留(dwellHint)任一即扩，
+            // 目标翻转从当前值起摆（150ms OutCubic）——武装/驻留瞬时满扩
+            // ＝跳变"生硬"的根因；旧实现挂 hoverBlend 也与放大曲线耦合
+            {
+                const qreal fanTarget = (card.hovered || card.dropHover
+                    || card.dwellHint) ? 1.0 : 0.0;
+                if (fanTarget != card.fanTo) {
+                    card.fanFrom = card.fanBlend;
+                    card.fanTo = fanTarget;
+                    card.fanTl = TimeLine(std::chrono::milliseconds(150));
+                    card.fanAnimating = true;
+                }
+                if (card.fanAnimating) {
+                    card.fanTl.advance(presentTime);
+                    const qreal ft = qBound(0.0, card.fanTl.value(), 1.0);
+                    const qreal fcubic = 1.0 - (1.0 - ft) * (1.0 - ft) * (1.0 - ft);
+                    card.fanBlend = card.fanFrom
+                        + (card.fanTo - card.fanFrom) * fcubic;
+                    if (card.fanTl.done()) {
+                        card.fanAnimating = false;
+                        card.fanBlend = card.fanTo;
+                    }
+                    anyAnim = true;
+                }
+            }
         }
         if (anyAnim) {
             // 动画卡区域并集重绘（全屏 addRepaintFull 在本机 GPU 是掉帧
@@ -1006,6 +1031,17 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
             for (const auto &v : doc.array())
                 icons.append(v.toString());
     }
+    // 去重兜底：QML 侧 decorateGroups 已按图标源去重（同应用多窗一枚），
+    // 这里再滤一次防御异常数据（重复图标是用户实测困惑点）
+    {
+        QSet<QString> seenIcons;
+        for (int i = icons.size() - 1; i >= 0; --i) {
+            if (seenIcons.contains(icons.at(i)))
+                icons.removeAt(i);
+            else
+                seenIcons.insert(icons.at(i));
+        }
+    }
     const int isz = 24 * 2, igap = std::max(6, isz / 5);
     const int maxFit = std::max(1, (w * 2 + igap) / (isz + igap));
     const int visible = int(std::min<qsizetype>(icons.size(), maxFit));
@@ -1040,16 +1076,18 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
                     QStringLiteral("+%1").arg(icons.size() - visible));
     }
     if (card.merged) {
-        // 拆分芯片：卡面居中（老 anchors.centerIn），两张 9×9 错位小卡。
-        // 合并卡**常显**暗态（alpha 90——"反馈不清楚"的修复：用户要知道
-        // 这张卡能拆），悬停点亮（chipHot=isHovered||mergeGlow → 加亮）
-        const int bx = w - 9, by = h - 9; // 逻辑中心 ×2 画布
+        // 拆分芯片：**右上**，关闭钮左侧（与 QML splitHit 同位 rightMargin
+        // 31/顶 7；铭牌 titleMargin=50 一直为它预留着）。合并卡**常显**暗态
+        //（alpha 90——用户要知道这张卡能拆），悬停点亮（chipHot → 加亮）。
+        // 旧版画在卡面正中＝盖住内容且用户在右上找不到（实测反馈）
+        const int ccx = w * 2 - 84; // 芯片中心（×2 画布；QML 20px 视觉钮中心）
+        const int ccy = 36;
         const int base = card.chipHot ? 235 : 90;
         op.setPen(QPen(QColor(120, 210, 255, card.chipHot ? 235 : 110), 2.8));
         op.setBrush(Qt::NoBrush);
-        op.drawRoundedRect(QRect(bx - 6, by - 6, 18, 18), 4, 4);
+        op.drawRoundedRect(QRect(ccx - 12, ccy - 12, 18, 18), 4, 4);
         op.setBrush(QColor(255, 255, 255, base));
-        op.drawRoundedRect(QRect(bx - 6 + 24, by - 6 + 18, 18, 18), 4, 4);
+        op.drawRoundedRect(QRect(ccx - 12 + 6, ccy - 12 + 6, 18, 18), 4, 4);
     }
     op.end();
     card.overlayTex = upload(ov.mirrored(false, true));
@@ -1812,7 +1850,9 @@ void StageAnimEffect::drawLiveCardBody(const RenderViewport &viewport,
         pose.angleDeg = card.curTiltDeg;
     }
 
-    const int fans = std::min(card.count - 1, 2);
+    // 扇叠可见层数：用户定稿更多层（旧 cap 2＝共 3 张不够表达），
+    // 上限 4（更多层视觉糊成一团，超出部分由图标排/+N 表达）
+    const int fans = std::min(card.count - 1, 4);
     const qreal fanMax = fans * card.fanSpacing
         * std::max(1.0, card.fanHoverSpread) * dpr;
     const QRectF quad = cardBodyQuad(pose, fanMax, dpr);
@@ -1859,26 +1899,26 @@ void StageAnimEffect::drawLiveCardBody(const RenderViewport &viewport,
     const qreal topEff = std::min(0.4,
         card.topLight * (1.0 + card.hoverBlend));
     // 扇叠扩散：hover 或武装/驻留都扩（老 dropHovered 同款）
-    const bool fanSpread = card.hovered || armed || hinted;
+    //（扩散目标在悬停引擎里由 fanBlend 补间逼近——armed/hinted 不再
+    // 瞬时满扩）
 
     // 0) 辉光 pass 已撤（v57）：光栅环带在投影视口下渲染异常＝
     //    "奇怪的光影"；悬停视觉先由边框蓝+提亮+深度淡出承担
-    // 1) 扇叠背板（同应用多窗：min(count-1,2) 张，**左上**探出——
+    // 1) 扇叠背板（同应用多窗：min(count-1,4) 张，**左上**探出——
     //    老 QML `plate.x − off`（用户定稿方向；条在右镜像到右上）。
     //    ⚠️ 与主卡同一 quad（外接框已含扇叠外扩），只走 SDF 偏移——
     //    旧实现 quad 平移 + SDF 偏移双重叠加＝画在 2× 偏移处且超出
-    //    quad 被直线裁边（"堆叠卡变矩形"的真凶）。悬停扩散随
-    //    hoverBlend 渐变（老 QML Behavior 140ms 同族平滑），武装/
-    //    驻留直接全扩（老 dropHovered 同款）；系数可调（fanHoverSpread）
-    const qreal spreadEff = 1.0 + (card.fanHoverSpread - 1.0)
-        * std::max(card.hoverBlend, (fanSpread ? 1.0 : 0.0));
+    //    quad 被直线裁边（"堆叠卡变矩形"的真凶）。扩散由 fanBlend 补间
+    //    驱动（150ms OutCubic，见悬停引擎）——hover/武装/驻留统一缓动；
+    //    系数可调（fanHoverSpread）
+    const qreal spreadEff = 1.0 + (card.fanHoverSpread - 1.0) * card.fanBlend;
     for (int i = fans - 1; i >= 0; --i) {
         const qreal off = (i + 1) * card.fanSpacing * spreadEff * dpr;
         // 老扇叠底色更暗：rgba(0.03,0.05,0.09,…) ≠ 主背板 (0.05,0.07,0.12)
         QColor ft(8, 13, 23);
-        ft.setAlphaF(card.tint.alphaF() * (0.85 - i * 0.25));
+        ft.setAlphaF(card.tint.alphaF() * (0.88 - i * 0.18));
         QColor fb = card.border;
-        fb.setAlphaF(fb.alphaF() * (0.8 - i * 0.25));
+        fb.setAlphaF(fb.alphaF() * (0.8 - i * 0.18));
         const qreal fx = card.rightSide ? off : -off;
         const qreal fy = -off;
         liveCardPass(viewport, dpr, *m_cardShader, pose, ix, iy, iw, ih,
