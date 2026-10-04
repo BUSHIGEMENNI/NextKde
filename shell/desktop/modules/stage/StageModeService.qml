@@ -29,7 +29,7 @@ QtObject {
 
     // KWin 特效代号——换代时只改这一处（vendor CMakeLists/metadata 与
     // ~/.local/bin/stage-anim 脚本头部需手动同步，旧代卸载流程见 AGENTS.md）
-    readonly property string effectId: "stageanim82"
+    readonly property string effectId: "stageanim85"
 
     // 显示桌面开关：DeskCenter 空区左键 → 台前侧栏收编/放出来回切换。
     // 走单例信号：DeskCenter 与侧栏分属两个模块，这是它们之间唯一的

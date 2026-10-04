@@ -31,6 +31,11 @@ struct StageAnimAnimation
 {
     EffectWindowVisibleRef visibleRef;
     TimeLine timeLine;
+    // 多输出同帧去重（逐窗！）：prePaintWindow 每屏各调一次，同一帧
+    // advance 两遍＝动画 2 倍速。⚠️ 必须挂在条目上——共享全局时间戳
+    // 会让同帧内除第一扇窗外全部跳过 advance＝多窗齐飞按窗数减速
+    // （v83.1 收起/退避卡顿事故）
+    std::chrono::milliseconds lastAdvance{-1};
     // 每窗目标（shell 按 KWin internalId 发布的卡片矩形）；无效 = 全局/回落
     QRect target;
     qreal endScale = -1.0;
@@ -236,7 +241,6 @@ private:
     QTimer m_liveStaleTimer;    // 10s 周期 reload 兜底（真正的心跳超时判定在 reload 内按 mtime 25s）
     QTimer m_liveFrameTimer;    // 自驱帧回调投喂（30Hz framePainted）
     std::chrono::milliseconds m_lastLiveAdvance{-1}; // 多输出同帧去重（状态机只推进一次）
-    std::chrono::milliseconds m_lastAnimAdvance{-1}; // m_animations 同款同帧去重（v82）
     int m_shaderFails = 0;            // 着色器编译连败计数（退避用，成功清零）
     qint64 m_shaderLastFailMs = 0;    // 最近一次编译失败时刻（steady ms）
     QHash<QString, QSharedPointer<LiveCard>> m_liveCards; // 含 dying 退场卡（统一绘制管线）

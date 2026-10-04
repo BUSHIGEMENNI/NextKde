@@ -603,10 +603,11 @@ void StageAnimEffect::prePaintWindow(RenderView *view, EffectWindow *w, WindowPr
 {
     auto animationIt = m_animations.find(w);
     if (animationIt != m_animations.end()) {
-        // 多输出防双喂（v82，与 m_lastLiveAdvance 同理）：prePaintWindow
-        // 每屏各调一次，同帧 advance 两遍＝窗口收放动画约 2 倍速
-        if (presentTime != m_lastAnimAdvance) {
-            m_lastAnimAdvance = presentTime;
+        // 多输出防双喂（逐窗守卫）：prePaintWindow 每屏各调一次，同帧
+        // advance 两遍＝2 倍速；守卫必须挂条目——全局时间戳会饿死同帧
+        // 的其余窗口（v82 引入的收起/退避卡顿，v83.1 修正）
+        if (presentTime != (*animationIt).lastAdvance) {
+            (*animationIt).lastAdvance = presentTime;
             (*animationIt).timeLine.advance(presentTime);
         }
         data.setTransformed();
@@ -1935,10 +1936,12 @@ void StageAnimEffect::drawLiveCardBody(const RenderViewport &viewport,
     card.paintCount++;
 
     // 有限姿态：静止矩形绕 TopLeft 放大（QML transformOrigin 语义）。
-    // 基底取 currentPose（from→target 的 OutCubic 插值）：逐帧发布流下
-    // ease=16ms≈直通，孤立跳变（布局提交）→ 280ms 优雅补间——这条缓动
-    // 管线 v73 拆分后一直只喂 damage、从未进绘制（v82 接上）
-    LiveCardPose pose = currentPose(card);
+    // ⚠️ 基底必须直取 card.target（v85 回滚 v82 的 currentPose 接线）：
+    // 发布流本身逐帧跟随 QML Behavior（已是平滑流），再叠效果侧缓动
+    // ＝双重平滑+系统性拖一帧，所有卡面动画整体"糊/拖/不跟手"（用户
+    // 实测"没有之前丝滑"）。currentPose 维持 damage-only 职责——孤立
+    // 跳变的优雅补间在流式架构下没有收益，只有代价
+    LiveCardPose pose = card.target;
     const qreal fadeMul = card.alpha * card.fade; // 入退场 × 压暗/边缘渐隐
     const qreal sc = card.dragging ? 1.0 : card.curScale;
     if (card.dragging) {
