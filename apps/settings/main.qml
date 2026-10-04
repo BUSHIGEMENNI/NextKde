@@ -1150,6 +1150,22 @@ ApplicationWindow {
                 }
 
                 StageSliderRow {
+                    label: "扇叠悬停扩散"
+                    unit: " ×"
+                    minV: 1.0
+                    maxV: 2.0
+                    decimals: 2
+                    active: true
+                    // 悬停/武装时扇叠间距的扩散系数（1.0=不扩散）；
+                    // 静态快照与实时直绘两模式同源生效
+                    current: fgSchedPage.stageSnapshot.fanHoverSpread !== undefined
+                        ? fgSchedPage.stageSnapshot.fanHoverSpread : 1.4
+                    onCommit: function(v) {
+                        fgSchedPage.stageSet("fanHoverSpread", v)
+                    }
+                }
+
+                StageSliderRow {
                     label: "左下角图标大小"
                     unit: " px"
                     minV: 16
@@ -1303,39 +1319,19 @@ ApplicationWindow {
                     }
                 }
 
-                // 活体流（round39 占空比节流）：无头 soak 存活但真实负载
-                //（重绘频繁窗口）下用户实测仍会被宿主杀桌面——本机默认关，
-                // 保留给硬件更强的设备
-                RowLayout {
+                // ── 卡面画面模式（两态）：静态快照（关）/ 实时·合成器
+                //    直绘（开）。遗留 PipeWire 流实验路径已从面板移除
+                //   （本机触发宿主杀桌面；代码保留给强硬件、仅 IPC 可达），
+                //    配置层互斥仍在 ──
+                Text {
                     Layout.fillWidth: true
-                    spacing: 12
-
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 4
-
-                        Text {
-                            text: "活体流（实验性）"
-                            color: theme.primaryText
-                            font { pixelSize: 13; weight: Font.Medium }
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: "悬停的卡片经 PipeWire 直显窗口实时画面（其余显示静态快照）。⚠️ 本机勿开：即使占空比节流（连接抓帧→断开渲染），重绘频繁的窗口仍可能触发宿主杀桌面；仅限硬件更强的设备。"
-                            color: theme.secondaryText
-                            font.pixelSize: 12
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    LiquidControls.LiquidGlassSwitch {
-                        checked: fgSchedPage.stageSnapshot.thumbLiveStream === true
-                        accentColor: theme.accent
-                        trackColor: theme.divider
-                        onToggled: function(checked) {
-                            fgSchedPage.stageSet("thumbLiveStream", checked)
-                        }
-                    }
+                    text: "卡面画面模式 — 当前："
+                        + (fgSchedPage.stageSnapshot.thumbLiveEffect === true
+                            ? "实时（合成器直绘，窗口内容持续更新）"
+                            : "静态快照（收编时拍照，稳定省电）")
+                    color: theme.accent
+                    font { pixelSize: 12; weight: Font.Medium }
+                    wrapMode: Text.WordWrap
                 }
 
                 // 合成器活体卡（stageanim 直绘）：隐藏窗经 KWin 离屏帧
@@ -1350,7 +1346,7 @@ ApplicationWindow {
                         spacing: 4
 
                         Text {
-                            text: "活体卡片（合成器直绘）"
+                            text: "实时卡片（合成器直绘）"
                             color: theme.primaryText
                             font { pixelSize: 13; weight: Font.Medium }
                         }
@@ -1373,27 +1369,7 @@ ApplicationWindow {
                     }
                 }
 
-                StageSliderRow {
-                    label: "连接抓帧时长"
-                    unit: " ms"
-                    minV: 80
-                    maxV: 1000
-                    active: fgSchedPage.stageSnapshot.thumbLiveStream === true
-                    current: fgSchedPage.stageSnapshot.streamCycleOnMs !== undefined
-                        ? fgSchedPage.stageSnapshot.streamCycleOnMs : 250
-                    onCommit: function(v) { fgSchedPage.stageSet("streamCycleOnMs", v) }
-                }
 
-                StageSliderRow {
-                    label: "断开休止时长"
-                    unit: " ms"
-                    minV: 200
-                    maxV: 5000
-                    active: fgSchedPage.stageSnapshot.thumbLiveStream === true
-                    current: fgSchedPage.stageSnapshot.streamCycleOffMs !== undefined
-                        ? fgSchedPage.stageSnapshot.streamCycleOffMs : 750
-                    onCommit: function(v) { fgSchedPage.stageSet("streamCycleOffMs", v) }
-                    }
                 }
             }
         }

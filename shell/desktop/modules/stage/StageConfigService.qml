@@ -221,10 +221,25 @@ QtObject {
         if (v === null)
             return JSON.stringify({ ok: false, error: "invalid value for " + key })
         svc[key] = v
+        // 卡面画面模式互斥（静态快照 / 合成器实时 / PipeWire 流）：
+        // 两者同开＝QML 流画面与特效直绘叠绘冲突，set 层强制二选一
+        //（UI 怎么写都安全；全关＝静态快照）
+        const flipped = v === true
+            ? (key === "thumbLiveEffect" && svc.thumbLiveStream
+                 ? "thumbLiveStream"
+                 : (key === "thumbLiveStream" && svc.thumbLiveEffect
+                     ? "thumbLiveEffect" : ""))
+            : ""
+        if (flipped !== "")
+            svc[flipped] = false
         // _load 未完成期间的 set 记账：回调不得用旧持久值回滚这些键
-        // （set 已 _save 落盘，回滚＝内存/文件漂移直到下次 set）
-        if (_loadPending)
+        // （set 已 _save 落盘，回滚＝内存/文件漂移直到下次 set）；
+        // 互斥翻转的键同样要记（它也是刚被 set 的）
+        if (_loadPending) {
             _pendingSetKeys[key] = true
+            if (flipped !== "")
+                _pendingSetKeys[flipped] = true
+        }
         revision++
         if (key === "animDuration" || key === "animEasing"
                 || key === "tiltAngle" || key === "glassOpacity"

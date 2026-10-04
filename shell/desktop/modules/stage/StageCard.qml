@@ -312,7 +312,11 @@ Item {
     // fanSpacing 缩放——层纹理只渲染 item 自身尺寸内的内容，扇叠超界会
     // 被切断成直角，实测"堆叠卡被裁剪"即此）。
     // ⚠️ 着色器以 plane 中心对称采样：扩容必须对称（plate 保持居中）。
-    readonly property real fanPad: 2.8 * StageConfigService.fanSpacing
+    // 层纹理外扩余量：2 张 × 最大扩散系数 × 间距（默认 2×1.4=2.8 同旧值；
+    // fanHoverSpread 调大时余量同步长——不够＝扇叠被层边界裁成直角）
+    readonly property real fanPad: 2
+        * Math.max(1.4, StageConfigService.fanHoverSpread)
+        * StageConfigService.fanSpacing
     Item {
         id: plane
         visible: false
@@ -334,7 +338,8 @@ Item {
                 required property int index
                 readonly property real off: (index + 1)
                     * StageConfigService.fanSpacing
-                    * ((card.isHovered || card.dropHovered) ? 1.4 : 1)
+                    * ((card.isHovered || card.dropHovered)
+                        ? StageConfigService.fanHoverSpread : 1)
                 // 方向（用户定稿）：左上角探出；条在右时镜像到右上
                 x: card.rightSide ? plate.x + off : plate.x - off
                 y: plate.y - off

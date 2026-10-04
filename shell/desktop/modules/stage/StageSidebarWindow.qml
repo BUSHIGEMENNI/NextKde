@@ -1078,8 +1078,12 @@ PanelWindow {
                     // 防御：开关已关/侧栏已关时特效不会画卡，不让位
                     root.liveChromeOwned = fresh && st.chrome === true
                         && StageConfigService.thumbLiveEffect && root.open
+                    // 回执 id 映射与 chrome 让位同门：模式关闭（回执虽
+                    // 仍"新鲜"）时立即清空——否则 livePainted 残留 true
+                    // ＝切回静态模式后缩略图被藏最长 12s（新鲜窗）
                     const map = ({})
-                    if (fresh && st.active && Array.isArray(st.cards))
+                    if (root.liveChromeOwned && st.active
+                            && Array.isArray(st.cards))
                         for (let i = 0; i < st.cards.length; i++)
                             map[st.cards[i]] = true
                     root._liveActiveIds = map
