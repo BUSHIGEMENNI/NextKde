@@ -33,6 +33,8 @@ uniform float borderWidth;
 uniform float depthG;
 uniform float topLight;
 uniform float hasContent;
+uniform float hoverBlend;
+uniform float sideRight;
 uniform float alpha;    // 整卡透明度（engaging 淡出）
 
 varying vec2 uv;
@@ -80,15 +82,16 @@ void main(void)
         al = tint.a;
     }
 
-    // 深度渐变（屏缘侧压暗；条在右由 C++ 翻转 depthSide 语义——这里固定
-    // 压左缘，右条卡 C++ 侧传 0 并在渐变方向上镜像的做法过于琐碎，直接
-    // 用 depthG=0 关掉，主视觉差异极小）
-    float depth = depthG * (1.0 - smoothstep(0.0, 0.75, n.x));
+    // 深度渐变（屏缘侧压暗；sideRight=1 时压右缘——右条镜像）。C++ 侧已
+    // 按 hoverBlend 衰减 depthG/topLight（悬停淡出），shader 只管方向
+    float nx = mix(n.x, 1.0 - n.x, sideRight);
+    float depth = depthG * (1.0 - smoothstep(0.0, 0.75, nx));
     rgb *= (1.0 - depth * 0.85);
     al *= (1.0 - depth * 0.45);
-    // 顶光（顶部一条白，模拟玻璃高光）
+    // 顶光（顶部一条白，模拟玻璃高光）+ 底部黑 0.10 stop（老 Gradient 尾）
     float tl = topLight * (1.0 - smoothstep(0.0, 0.35, n.y));
     rgb += vec3(tl);
+    rgb *= (1.0 - 0.10 * smoothstep(0.35, 1.0, n.y));
 
     // 边框环（-borderWidth < d < 0）
     float ring = smoothstep(-borderWidth - 1.0, -borderWidth + 1.0, d);

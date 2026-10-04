@@ -180,12 +180,32 @@ Item {
             z: parent && parent.z !== undefined ? parent.z : 0,
             hoverScale: StageConfigService.hoverScale,
             hoverTilt: card.rightSide ? -hoverT : hoverT,
+            // engaging 交棒保持倾角（scroll=deckRestTilt / adaptive=tiltAngle，
+            // 老语义：交棒时卡不压平到 0）
+            engagingTilt: card.rightSide
+                ? -(scrollMode ? StageConfigService.deckRestTilt
+                    : StageConfigService.tiltAngle)
+                : (scrollMode ? StageConfigService.deckRestTilt
+                    : StageConfigService.tiltAngle),
             hoverMs: StageConfigService.cardEnterDuration + 40,
+            tiltMs: StageConfigService.tiltAnimDuration,
+            enterMs: StageConfigService.cardEnterDuration,
+            animMs: StageConfigService.animDuration,
             fanSpacing: StageConfigService.fanSpacing,
             cardTint: StageConfigService.cardTint,
             cardBorder: StageConfigService.cardBorder,
             cardDepth: StageConfigService.cardDepth,
             cardTopLight: StageConfigService.cardTopLight,
+            cardGlow: StageConfigService.cardGlow,
+            rightSide: card.rightSide,
+            merged: card.merged,
+            showCardTitle: StageConfigService.showCardTitle,
+            enterInstant: card.enterInstant,
+            // 拖拽净放大（老语义：1.06 槽位缩放 × 悬停 1.18 叠加）
+            dragScale: card.scale,
+            selfMergeHint: card.selfMergeHint,
+            chipHot: card.isHovered || card.mergeGlow,
+            iconsJson: card.iconsJson,
         }
     }
     // x 入列方向镜像：左侧从右滑入（+70），右侧从左滑入（−70）——都从

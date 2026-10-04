@@ -24,6 +24,7 @@
 #include <QDateTime>
 #include <QImage>
 #include <QPainter>
+#include <QRegularExpression>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -346,6 +347,11 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
     // overshoot 1.2、tilt OutCubic。
     if (!m_liveCards.isEmpty()) {
         const QPointF cur = effects->cursorPos();
+        // 拖拽期全员免悬停（老体系语义：拖拽中无 hover 放大/倾斜——候选
+        // 预示由 dropHover/dwellHint 武装态视觉承担）
+        bool anyDragging = false;
+        for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it)
+            if ((*it)->dragging) { anyDragging = true; break; }
         QVector<LiveCard *> order;
         order.reserve(m_liveCards.size());
         for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it)
@@ -353,13 +359,41 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
         std::sort(order.begin(), order.end(),
                   [](const LiveCard *a, const LiveCard *b) { return a->z > b->z; });
         bool anyAnim = false;
+        const qint64 blendNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
         for (LiveCard *cp : order) {
             LiveCard &card = *cp;
-            if (card.dragging || card.engaging) {
-                card.hovered = false;
+            if (card.spawnAtMs > 0 && blendNow < card.spawnAtMs) {
+                card.alpha = 0.0;   // 迸开错峰：本张的入场还没到拍
+                anyAnim = true;
+                continue;
+            }
+            if (card.spawnDelayMs > 0) {
+                // 本张到拍：时间线从此刻起表（hover/fade 的 advance 在后
+                // 文，用负进度保持"未开始"）
+                card.hoverTl = TimeLine(card.hoverMs);
+                card.fadeTl = TimeLine(card.enterInstant
+                    ? card.animMs : card.enterMs);
+                card.spawnDelayMs = 0;
+                card.spawnAtMs = 1; // 标记进入侧滑绘制分支
+            }
+            if (card.dragging || card.engaging || anyDragging) {
+                if (card.hovered && card.hoverAnimating) {
+                    // 拖拽开始时优雅退场（不再瞬跳）
+                    card.hovered = false;
+                    card.scaleFrom = card.curScale;
+                    card.tiltFrom = card.curTiltDeg;
+                    card.scaleTo = 1.0;
+                    card.tiltTo = card.target.angleDeg;
+                    card.hoverTl = TimeLine(card.tiltMs);
+                    card.hoverAnimating = true;
+                } else {
+                    card.hovered = false;
+                }
                 if (card.dragging) {
-                    card.curScale = 1.0;
+                    card.curScale = card.dragScale; // 老语义净放大 1.06×hover
                     card.curTiltDeg = 0.0;
+                    card.hoverBlend = 0.0;
                 }
             } else {
                 const QRectF rest = card.target.rect;
@@ -380,8 +414,9 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
             if (card.hoverAnimating) {
                 card.hoverTl.advance(presentTime);
                 const qreal t = qBound(0.0, card.hoverTl.value(), 1.0);
-                // OutBack（overshoot 1.2，QML 同参）与 OutCubic 的手工版
-                const qreal c1 = 1.2 * 1.70158, c3 = c1 + 1.0;
+                // OutBack（Qt 语义：overshoot 值直用为 c1——旧版 ×1.70158
+                // 过冲强 1.7 倍）；OutCubic 手工版
+                const qreal c1 = 1.2, c3 = c1 + 1.0;
                 const qreal tm1 = t - 1.0;
                 const qreal back = 1.0 + c3 * tm1 * tm1 * tm1 + c1 * tm1 * tm1;
                 const qreal cubic = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
@@ -389,6 +424,7 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
                     + (card.scaleTo - card.scaleFrom) * back;
                 card.curTiltDeg = card.tiltFrom
                     + (card.tiltTo - card.tiltFrom) * cubic;
+                card.hoverBlend = (card.hovered ? 1.0 : 0.0) * cubic;
                 if (card.hoverTl.done())
                     card.hoverAnimating = false;
                 anyAnim = true;
@@ -396,7 +432,8 @@ void StageAnimEffect::prePaintScreen(ScreenPrePaintData &data, std::chrono::mill
             if (card.fadeAnimating) {
                 card.fadeTl.advance(presentTime);
                 const qreal t = qBound(0.0, card.fadeTl.value(), 1.0);
-                card.alpha = card.alphaFrom + (card.alphaTo - card.alphaFrom) * t;
+                const qreal cubic = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
+                card.alpha = card.alphaFrom + (card.alphaTo - card.alphaFrom) * cubic;
                 if (card.fadeTl.done())
                     card.fadeAnimating = false;
                 anyAnim = true;
@@ -779,6 +816,19 @@ struct CardMeta
     qreal depthStrength = 0.22, topLight = 0.10;
     qreal fade = 1.0;   // QML slot.opacity（压暗 × 视口边缘渐隐）
     bool closeHot = false;
+    bool selfMergeHint = false; // 中心合并武装：被拖卡自身亮蓝边框
+    bool rightSide = false;     // 右条镜像（扇叠/深度/图标方向）
+    bool merged = false;        // 合并卡（拆分芯片；标题让位 50）
+    bool showCardTitle = true;
+    bool enterInstant = false;  // 收编落卡（淡入=飞行时长 420ms）
+    bool chipHot = false;       // 拆分芯片点亮（isHovered||mergeGlow）
+    QString iconsJson;          // 组内窗口图标排（file:/icon: URL 数组）
+    qreal engagingTilt = 0;     // 交棒保持倾角（adaptive=tiltAngle 非 0）
+    std::chrono::milliseconds tiltMs{250};
+    std::chrono::milliseconds enterMs{240};
+    std::chrono::milliseconds animMs{420};
+    qreal dragScale = 1.0;      // 拖拽净放大（1.06×hover 叠加，老语义）
+    qreal cardGlow = 0.5;
 };
 
 static void applyCardMeta(LiveCard &card, const CardMeta &m)
@@ -806,6 +856,20 @@ static void applyCardMeta(LiveCard &card, const CardMeta &m)
     card.border = QColor(255, 255, 255, int(qBound(0.0, m.borderAlpha, 1.0) * 255));
     card.fade = m.fade;
     card.closeHot = m.closeHot;
+    card.selfMergeHint = m.selfMergeHint;
+    card.rightSide = m.rightSide;
+    card.merged = m.merged;
+    card.showCardTitle = m.showCardTitle;
+    card.chipHot = m.chipHot;
+    card.iconsJson = m.iconsJson;
+    card.engagingTilt = m.engagingTilt;
+    card.tiltMs = m.tiltMs;
+    card.enterMs = m.enterMs;
+    card.animMs = m.animMs;
+    card.dragScale = m.dragScale > 1.001 ? m.dragScale : 1.0;
+    card.cardGlow = m.cardGlow;
+    if (card.enterInstant != m.enterInstant)
+        card.enterInstant = m.enterInstant;
 }
 
 // 铭牌（标题 + 关闭钮，QML cardHeader 同版式 ×2 超采样）光栅进纹理。
@@ -818,11 +882,18 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
     const QString key = card.title + QLatin1Char('|')
         + QString::number(card.count) + QLatin1Char('|')
         + QString::number(w) + QLatin1Char('x') + QString::number(h)
-        + QLatin1Char(card.closeHot ? '!' : '.');
-    if (key == card.chromeKey && card.chromeTex)
+        + QLatin1Char(card.closeHot ? '!' : '.')
+        + QLatin1Char(card.merged ? 'M' : 'm')
+        + QLatin1Char(card.chipHot ? 'C' : 'c')
+        + QLatin1Char(card.showCardTitle ? 'T' : 't')
+        + QLatin1Char(card.rightSide ? 'R' : 'l')
+        + QLatin1Char('|') + card.iconsJson
+        + QLatin1Char('|') + QString::number(int(card.cardGlow * 100));
+    if (key == card.chromeKey && card.chromeTex && card.glowTex)
         return;
     card.chromeKey = key;
 
+    // ── 铭牌：标题 + 关闭钮 + 拆分芯片 + 图标排（+N 溢出）──
     QImage img(w * 2, h * 2, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);
     QPainter p(&img);
@@ -832,18 +903,18 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
     f.setPixelSize(22); // QML pixelSize 11 ×2
     f.setWeight(QFont::Bold);
     p.setFont(f);
-    // 标题：头部行（margins 8 + 高 24，QML cardHeader 版式）；右侧让出
-    // 关闭钮 20 + 间隙 6；白字 + 1px 黑投影（QML Text.Outline 的近似）
-    const QRect tr(16, 16, w * 2 - 16 - 52 * 2 - 8, 48);
-    p.setPen(QColor(0, 0, 0, 150));
-    p.drawText(tr.translated(0, 2), Qt::AlignLeft | Qt::AlignVCenter, card.title);
-    p.setPen(QColor(255, 255, 255, 235));
-    p.drawText(tr, Qt::AlignLeft | Qt::AlignVCenter, card.title);
-    // 关闭钮：右上 20×20 圆环 + ×（QML cardClose 同位：right margin 8）
+    const int titleMargin = card.merged ? 50 * 2 : 26 * 2; // merged 让位芯片
+    if (card.showCardTitle) {
+        const QRect tr(16, 16, w * 2 - 16 - titleMargin - 8, 48);
+        p.setPen(QColor(0, 0, 0, 150));
+        p.drawText(tr.translated(0, 2), Qt::AlignLeft | Qt::AlignVCenter, card.title);
+        p.setPen(QColor(255, 255, 255, 235));
+        p.drawText(tr, Qt::AlignLeft | Qt::AlignVCenter, card.title);
+    }
+    // 关闭钮：右上 20×20 圆 + ×（QML cardClose 同位：right margin 8）
     const int csize = 40; // 20 ×2
     const int cx = w * 2 - 16 - csize;
     const int cy = 8 * 2 + (48 - csize) / 2;
-    // 悬停红钮（QML cardClose #ef4444 同款）；非悬停 = 白圈描线
     if (card.closeHot) {
         p.setPen(Qt::NoPen);
         p.setBrush(QColor(239, 68, 68, 235));
@@ -856,20 +927,98 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
     }
     p.drawLine(cx + 13, cy + 13, cx + csize - 13, cy + csize - 13);
     p.drawLine(cx + csize - 13, cy + 13, cx + 13, cy + csize - 13);
-    p.end();
-
-    // 本 KWin 无 GLTexture(QImage) 构造：allocate + glTexSubImage2D 直传
-    //（QImage ARGB32_Premultiplied 小端字节序 = BGRA；Y 已镜像匹配 FBO 朝向）
-    const QImage flipped = img.mirrored(false, true);
-    card.chromeTex = GLTexture::allocate(GL_RGBA8, flipped.size());
-    if (card.chromeTex) {
-        card.chromeTex->setFilter(GL_LINEAR);
-        card.chromeTex->setWrapMode(GL_CLAMP_TO_EDGE);
-        card.chromeTex->bind();
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, flipped.width(), flipped.height(),
-                        GL_BGRA, GL_UNSIGNED_BYTE, flipped.constBits());
-        card.chromeTex->unbind();
+    // 拆分芯片（merged 且点亮：两张 9×9 错位小卡，头部行右部；老右距 31）
+    if (card.merged && card.chipHot) {
+        const int bx = w * 2 - 16 - 62 - 8;
+        const int by = 8 * 2 + (48 - 40) / 2;
+        p.setPen(QPen(QColor(255, 255, 255, 220), 2.8));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(QRect(bx + 5, by + 1, 18, 18), 4, 4);
+        p.setBrush(QColor(255, 255, 255, 235));
+        p.drawRoundedRect(QRect(bx - 5 + 18, by + 9, 18, 18), 4, 4);
     }
+    // 图标排：左下角正视一窗一图标（24px，gap=max(3,20%)；rightSide 镜像
+    // 右下）；封顶 = 卡宽能塞几枚，多出 "+N"
+    QStringList icons;
+    {
+        const auto doc = QJsonDocument::fromJson(card.iconsJson.toUtf8());
+        if (doc.isArray())
+            for (const auto &v : doc.array())
+                icons.append(v.toString());
+    }
+    const int isz = 24 * 2, igap = std::max(6, isz / 5);
+    const int maxFit = std::max(1, (w * 2 + igap) / (isz + igap));
+    const int visible = int(std::min<qsizetype>(icons.size(), maxFit));
+    int rowW = visible > 0 ? visible * isz + (visible - 1) * igap : 0;
+    const bool overflow = icons.size() > visible;
+    if (overflow)
+        rowW += igap + 56; // "+N" 位
+    int ix0 = card.rightSide ? w * 2 - 10 - rowW : 10;
+    const int iy0 = h * 2 - isz + 10; // bottomMargin -5 ≈ 微探出
+    for (int i = 0; i < visible; i++) {
+        const QString &src = icons.at(i);
+        QPixmap pm;
+        if (src.startsWith(QLatin1String("file://")))
+            pm.load(src.mid(7));
+        if (pm.isNull()) {
+            // 主题名兜底（image:// 前缀剥掉后按主题名找）
+            QString name = src;
+            name.remove(QRegularExpression(QStringLiteral("^image://[^/]+/")));
+            pm = QIcon::fromTheme(name).pixmap(isz, isz);
+        }
+        if (!pm.isNull()) {
+            p.drawPixmap(ix0 + i * (isz + igap), iy0, isz, isz, pm);
+        } else {
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(255, 255, 255, 90));
+            p.drawRoundedRect(QRect(ix0 + i * (isz + igap), iy0, isz, isz), 8, 8);
+        }
+    }
+    if (overflow) {
+        p.setPen(QColor(255, 255, 255, 200));
+        p.drawText(QRect(ix0 + visible * (isz + igap), iy0, 56, isz),
+                   Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("+%1").arg(icons.size() - visible));
+    }
+    p.end();
+    auto upload = [](const QImage &im) {
+        auto tex = GLTexture::allocate(GL_RGBA8, im.size());
+        if (tex) {
+            tex->setFilter(GL_LINEAR);
+            tex->setWrapMode(GL_CLAMP_TO_EDGE);
+            tex->bind();
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, im.width(), im.height(),
+                            GL_BGRA, GL_UNSIGNED_BYTE, im.constBits());
+            tex->unbind();
+        }
+        return tex;
+    };
+    card.chromeTex = upload(img.mirrored(false, true));
+
+    // ── 悬停辉光（5 层薄步进光晕：opacity=cardGlow/2^i，外扩 6+i*5/8+i*7，
+    //    radius+4+i*4，蓝白 rgba(0.55,0.75,1.0)；静态光栅，alpha=hoverBlend
+    //    动画由绘制侧乘）──
+    QImage glow((w + 48) * 2, (h + 48) * 2, QImage::Format_ARGB32_Premultiplied);
+    glow.fill(Qt::transparent);
+    QPainter gp(&glow);
+    gp.setRenderHint(QPainter::Antialiasing, true);
+    gp.setBrush(Qt::NoBrush);
+    for (int i = 4; i >= 0; i--) {
+        const qreal a = card.cardGlow / std::pow(2.0, i);
+        if (a < 0.01)
+            continue;
+        gp.setPen(QPen(QColor(140, 191, 255, int(a * 255)), 6.0));
+        const int ex = (24 + 0) * 2 + 0; // 画布已含 24 逻辑 pad
+        const int gx = 24 * 2 + (i > 0 ? (6 + i * 5) * 2 : 0);
+        const int gy = 24 * 2 + (i > 0 ? (8 + i * 7) * 2 : 0);
+        const int gw = w * 2 + 2 * (gx - 24 * 2);
+        const int gh = h * 2 + 2 * (gy - 24 * 2);
+        gp.drawRoundedRect(QRect(gx, gy, gw, gh),
+                           (card.target.radius + 4 + i * 4) * 2,
+                           (card.target.radius + 4 + i * 4) * 2);
+    }
+    gp.end();
+    card.glowTex = upload(glow.mirrored(false, true));
 }
 
 void StageAnimEffect::reloadLiveCards()
@@ -922,6 +1071,22 @@ void StageAnimEffect::reloadLiveCards()
                 meta.topLight = o.value(QStringLiteral("cardTopLight")).toDouble(0.10);
                 meta.fade = qBound(0.0, o.value(QStringLiteral("fade")).toDouble(1.0), 1.0);
                 meta.closeHot = o.value(QStringLiteral("closeHover")).toBool();
+                meta.selfMergeHint = o.value(QStringLiteral("selfMergeHint")).toBool();
+                meta.rightSide = o.value(QStringLiteral("rightSide")).toBool();
+                meta.merged = o.value(QStringLiteral("merged")).toBool();
+                meta.showCardTitle = o.value(QStringLiteral("showCardTitle")).toBool(true);
+                meta.enterInstant = o.value(QStringLiteral("enterInstant")).toBool();
+                meta.chipHot = o.value(QStringLiteral("chipHot")).toBool();
+                meta.iconsJson = o.value(QStringLiteral("iconsJson")).toString();
+                meta.engagingTilt = o.value(QStringLiteral("engagingTilt")).toDouble();
+                meta.tiltMs = std::chrono::milliseconds(
+                    std::max(80, o.value(QStringLiteral("tiltMs")).toInt(250)));
+                meta.enterMs = std::chrono::milliseconds(
+                    std::max(80, o.value(QStringLiteral("enterMs")).toInt(240)));
+                meta.animMs = std::chrono::milliseconds(
+                    std::max(120, o.value(QStringLiteral("animMs")).toInt(420)));
+                meta.dragScale = o.value(QStringLiteral("dragScale")).toDouble(1.0);
+                meta.cardGlow = o.value(QStringLiteral("cardGlow")).toDouble(0.5);
                 entries.append({id, pose, meta});
                 wanted.insert(id);
             }
@@ -1002,19 +1167,32 @@ void StageAnimEffect::reloadLiveCards()
             applyCardMeta(*card, std::get<2>(e));
             card->curTiltDeg = card->target.angleDeg; // 悬停引擎起点 = 静止角
             card->chromeKey.clear(); // 强制首帧光栅铭牌
-            // 入场动画（QML 收编入场同款：淡入 + 0.86 长到 1，OutCubic）
+            // 入场动画（老 QML 收编入场完整迁移）：x 侧滑 ±70（OutCubic）
+            // + 淡入 OutCubic（enterInstant=飞行时长 animMs/普通=enterMs）
+            // + 0.86 长到 1（OutBack）+ 拆分迸开错峰 70ms
+            static qint64 s_lastSpawnAt = 0;
+            static int s_spawnBurst = 0;
+            const qint64 spawnNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (spawnNow - s_lastSpawnAt < 200)
+                s_spawnBurst++;   // 同批迸开：每张 +70ms
+            else
+                s_spawnBurst = 0;
+            s_lastSpawnAt = spawnNow;
+            card->spawnDelayMs = s_spawnBurst * 70;
+            card->spawnAtMs = spawnNow + card->spawnDelayMs;
             card->alpha = 0.0;
             card->alphaFrom = 0.0;
             card->alphaTo = 1.0;
-            card->fadeTl = TimeLine(std::chrono::milliseconds(
-                std::max(120, int(std::chrono::duration_cast<std::chrono::milliseconds>(
-                    card->hoverMs).count() * 3 / 4))));
+            card->fadeTl = TimeLine(card->enterInstant
+                ? card->animMs : card->enterMs);
             card->fadeAnimating = true;
             card->curScale = 0.86;
             card->scaleFrom = 0.86;
             card->scaleTo = 1.0;
             card->tiltFrom = card->target.angleDeg;
             card->tiltTo = card->target.angleDeg;
+            card->spawnSlide = (card->rightSide ? -70.0 : 70.0);
             card->hoverTl = TimeLine(card->hoverMs);
             card->hoverAnimating = true;
             card->dirty = true;
@@ -1080,7 +1258,9 @@ void StageAnimEffect::reloadLiveCards()
                 card.scaleFrom = card.curScale;
                 card.scaleTo = 1.0;
                 card.tiltFrom = card.curTiltDeg;
-                card.tiltTo = card.target.angleDeg;
+                // 交棒保持倾角（老语义：scroll=deckRestTilt / adaptive=
+                // tiltAngle——与窗口飞行起始姿态对齐，不压平到 0）
+                card.tiltTo = card.engagingTilt;
                 card.hoverTl = TimeLine(std::chrono::milliseconds(180));
                 card.hoverAnimating = true;
             }
@@ -1307,7 +1487,8 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
                         qreal iy, qreal iw, qreal ih, const QVector2D &fanOff,
                         bool fanOnly, const QColor &tint, const QColor &border,
                         qreal borderWidth, qreal depthG, qreal topLight,
-                        GLTexture *tex, qreal alpha) {
+                        GLTexture *tex, qreal alpha,
+                        qreal hoverBlend = 0.0, float sideRight = 0.0f) {
         ShaderBinder binder(&sh);
         sh.setUniform("modelViewProjectionMatrix", viewport.projectionMatrix());
         sh.setUniform("texUnit", 0);
@@ -1343,6 +1524,8 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
             sh.setUniform("depthG", float(depthG));
             sh.setUniform("topLight", float(topLight));
             sh.setUniform("hasContent", tex && !fanOnly ? 1.0f : 0.0f);
+            sh.setUniform("hoverBlend", float(hoverBlend));
+            sh.setUniform("sideRight", sideRight);
         } else {
             sh.setUniform("crad", 0.0f);
         }
@@ -1374,8 +1557,16 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
             // 拖拽卡画在发布矩形上（QML 逐帧跟手发布，鼠标/触摸通吃）；
             // 旧的光标钉位方案对触摸失效（触摸不动 cursorPos）
             pose.rect = QRectF(pose.rect.topLeft(),
-                               QSizeF(pose.rect.width(), pose.rect.height()));
+                               QSizeF(pose.rect.width() * card.dragScale,
+                                      pose.rect.height() * card.dragScale));
             pose.angleDeg = 0.0;
+        } else if (card.spawnAtMs > 0 && card.hoverAnimating) {
+            // 入场侧滑：从屏侧 ±70 滑进（OutCubic，与 QML x Behavior 同拍；
+            // spawn 淡入/长大共用 hoverTl）
+            const qreal t = qBound(0.0, card.hoverTl.value(), 1.0);
+            const qreal cubic = 1.0 - (1.0 - t) * (1.0 - t) * (1.0 - t);
+            const qreal slide = card.spawnSlide * (1.0 - cubic);
+            pose.rect.translate(slide, 0.0);
         } else {
             pose.rect = QRectF(pose.rect.topLeft(),
                                QSizeF(pose.rect.width() * sc, pose.rect.height() * sc));
@@ -1412,30 +1603,76 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
 
         rasterChrome(card); // 键变重绘（非绘制时机以外的光栅+上传）
 
-        const QColor mainTint = card.hovered ? card.tintHover : card.tint;
+        // 武装态视觉（老 QML 两档完整迁移）：
+        //   armed（dropHover/selfMerge）= 亮蓝 rgba(0.45,0.85,1.0,0.95) + 2px + 提亮
+        //   dwell（驻留中）= rgba(0.45,0.85,1.0,0.78) + 2px + 提亮
+        //   hover 边框蓝 = rgba(0.62,0.80,1.0,0.85)（随 hoverBlend 渐变）
+        const bool armed = card.dropHover || card.selfMergeHint;
+        const bool hinted = card.dwellHint;
+        const QColor mainTint = (card.hovered || armed || hinted)
+            ? card.tintHover : card.tint;
         QColor mainBorder = card.border;
-        if (card.dropHover || card.dwellHint)
-            mainBorder = QColor(96, 165, 250, 220); // 合并预示蓝（QML 同款色族）
+        qreal borderWidth = 1.0;
+        if (armed) {
+            mainBorder = QColor(115, 217, 255, 242);
+            borderWidth = 2.0;
+        } else if (hinted) {
+            mainBorder = QColor(115, 217, 255, 199);
+            borderWidth = 2.0;
+        } else if (card.hoverBlend > 0.01) {
+            const QColor blue(158, 204, 255, 217);
+            mainBorder = QColor(
+                int(mainBorder.red() + (blue.red() - mainBorder.red()) * card.hoverBlend),
+                int(mainBorder.green() + (blue.green() - mainBorder.green()) * card.hoverBlend),
+                int(mainBorder.blue() + (blue.blue() - mainBorder.blue()) * card.hoverBlend),
+                int(mainBorder.alpha() + (blue.alpha() - mainBorder.alpha()) * card.hoverBlend));
+        }
+        // 深度渐变悬停淡出（老 250ms Behavior → hoverBlend 渐变）；
+        // 顶光悬停 ×2（上限 0.4）；右条镜像深度侧
+        const qreal depthEff = card.depthStrength * (1.0 - card.hoverBlend);
+        const qreal topEff = std::min(0.4,
+            card.topLight * (1.0 + card.hoverBlend));
+        // 扇叠 ×1.4：hover 或武装/驻留都扩（老 dropHovered 同款）
+        const bool fanSpread = card.hovered || armed || hinted;
 
+        // 0) 悬停辉光（外扩画布；alpha=hoverBlend 动画，画在最底层）
+        if (card.glowTex && card.hoverBlend > 0.01) {
+            LiveCardPose gpose = pose;
+            const qreal pad = 24.0 * dpr;
+            gpose.rect = QRectF(pose.rect.left() - pad, pose.rect.top() - pad,
+                                pose.rect.width() + pad * 2,
+                                pose.rect.height() + pad * 2);
+            // 辉光画布 = 卡面外扩 24：外接框同款外扩
+            drawPass(*m_liveShader, gpose,
+                     ix - pad, iy - pad, iw + pad * 2, ih + pad * 2,
+                     QVector2D(0, 0), false, QColor(), QColor(), 0, 0, 0,
+                     card.glowTex.get(), fadeMul * card.hoverBlend);
+        }
         // 1) 扇叠背板（同应用多窗：min(count-1,2) 张，向左上探出；悬停
         //    间距 ×1.4 = QML"卡片簇吸气"反馈）
         const int fans = std::min(card.count - 1, 2);
         for (int i = fans - 1; i >= 0; --i) {
             const qreal off = (i + 1) * card.fanSpacing
-                * (card.hovered ? 1.4 : 1.0) * dpr;
-            QColor ft = card.tint;
-            ft.setAlphaF(ft.alphaF() * (0.85 - i * 0.25));
+                * (fanSpread ? 1.4 : 1.0) * dpr;
+            // 老扇叠底色更暗：rgba(0.03,0.05,0.09,…) ≠ 主背板 (0.05,0.07,0.12)
+            QColor ft(8, 13, 23);
+            ft.setAlphaF(card.tint.alphaF() * (0.85 - i * 0.25));
             QColor fb = card.border;
             fb.setAlphaF(fb.alphaF() * (0.8 - i * 0.25));
-            drawPass(*m_cardShader, pose, ix - off, iy - off, iw, ih,
-                     QVector2D(float(-off), float(-off)), true, ft, fb,
+            // 方向镜像：左条左上探出 / 右条右上（老 plate.x±off）
+            const qreal fx = card.rightSide ? -off : off;
+            const qreal fy = -off;
+            drawPass(*m_cardShader, pose, ix + fx, iy + fy, iw, ih,
+                     QVector2D(float(fx), float(fy)), true, ft, fb,
                      1.0, 0.0, 0.0, nullptr, fadeMul);
         }
 
-        // 2) 主卡（背板 + 渐变 + 内容 + 边框 + 圆角一体）
+        // 2) 主卡（背板 + 渐变 + 内容 + 边框 + 圆角一体；hoverBlend 传
+        //    shader 做深度淡出/顶光×2/深度侧镜像）
         drawPass(*m_cardShader, pose, ix, iy, iw, ih, QVector2D(0, 0), false,
-                 mainTint, mainBorder, 1.0, card.depthStrength, card.topLight,
-                 card.texture.get(), fadeMul);
+                 mainTint, mainBorder, borderWidth, depthEff, topEff,
+                 card.texture.get(), fadeMul, card.hoverBlend,
+                 card.rightSide ? 1.0f : 0.0f);
 
         // 3) 铭牌（标题/关闭钮，光栅纹理；无圆角裁形）
         if (card.chromeTex && fadeMul > 0.3)

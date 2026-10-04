@@ -92,7 +92,25 @@ struct LiveCard
     QColor border{255, 255, 255, 71};
     qreal hoverScale = 1.18;
     qreal hoverTiltDeg = 0;       // 悬停终态倾角（已含右条镜像符号）
-    qreal grabDX = 0, grabDY = 0; // 拖拽钉光标的抓取偏移
+    qreal grabDX = 0, grabDY = 0; // 拖拽抓取偏移
+    // v52 视觉补全（老 QML 行为迁移）
+    bool selfMergeHint = false;
+    bool rightSide = false;
+    bool merged = false;
+    bool showCardTitle = true;
+    bool enterInstant = false;
+    bool chipHot = false;
+    QString iconsJson;
+    qreal engagingTilt = 0;
+    std::chrono::milliseconds tiltMs{250};
+    std::chrono::milliseconds enterMs{240};
+    std::chrono::milliseconds animMs{420};
+    qreal dragScale = 1.0;
+    qreal cardGlow = 0.5;
+    qreal hoverBlend = 0.0;    // 悬停态混合量（边框蓝/深度淡出/顶光×2/辉光）
+    qreal spawnSlide = 0.0;    // 入场 x 侧滑起点（±70）
+    qint64 spawnAtMs = 0;      // 入场起表时刻（迸开错峰 +70ms/张）
+    qint64 spawnDelayMs = 0;
     std::chrono::milliseconds hoverMs{240};
     qreal fanSpacing = 6;
     qreal depthStrength = 0.22;
@@ -116,6 +134,7 @@ struct LiveCard
     // 铭牌（标题/关闭钮，QPainter 光栅 → 纹理；键变才重绘，Y 镜像匹配
     // stage-live 的 FBO 朝向采样）
     std::unique_ptr<GLTexture> chromeTex;
+    std::unique_ptr<GLTexture> glowTex; // 悬停辉光（外扩 24 逻辑 pad）
     QString chromeKey;
 };
 
