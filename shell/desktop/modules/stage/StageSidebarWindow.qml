@@ -1263,6 +1263,7 @@ PanelWindow {
         root.hoveredKey = ""
         root._clearMergeGesture()
         root.dragKey = slot.appKey
+        root.publishLiveCards()   // dragging 标志即时发布（特效切跟手模式）
         root.dragFromIndex = index
         root.dragToIndex = index
         // 抓取偏移 = 指针列坐标 − 卡当前 x/y（保持指尖抓在按下的位置）
@@ -1360,6 +1361,10 @@ PanelWindow {
         // 布局会拖累跟手帧率
         slot.y = root.dragY
         slot.slotX = root._dragClampX(slot)
+        // 卡面视觉在特效侧（chrome 让位）：跟手矩形必须逐帧发布（16ms
+        // 合并），否则特效手里的卡停在原槽位 = "拖动没有痕迹"（图标排
+        // 是 QML 的会跟指针走，读作"卡不动图标乱飞"）
+        root.scheduleLivePublish()
         // 跟手排障遥测（真手拖动无头复现不了：事件层/掩码层只有真指针
         // 能测）：stage-config debugTrace 开启时 ~80ms 一条，读 px（指针
         // 列坐标）vs sx（实际 slotX）
