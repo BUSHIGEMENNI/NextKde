@@ -227,11 +227,18 @@ StageAnimEffect::StageAnimEffect()
         // 轮流喂（~7.5fps）——每次投喂都会引发客户端渲染→损伤→重拍（整
         // 窗场景树渲进 FBO），全员 30fps 是帧率杀手；侧栏小卡 7.5fps 的
         // 活体感无肉眼差异
+        // 动静自适应（用户方案）：近 800ms 有损伤 = 卡内容在播放动画 →
+        // 全速喂（30fps）；静态内容损伤为零 → 低速轮询足够（无待决帧时
+        // 投喂本就是 no-op，低速纯粹防偶发漏帧）
         ++m_liveFeedTick;
+        const qint64 feedNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
         for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
             LiveCard &card = **it;
+            const bool active = card.lastDamageMs > 0
+                && feedNow - card.lastDamageMs < 800;
             const bool priority = card.hovered || card.dragging
-                || card.hoverAnimating || card.engaging;
+                || card.hoverAnimating || card.engaging || active;
             if (!priority && (m_liveFeedTick + card.feedPhase) % 4 != 0)
                 continue;
             if (!liveCardPaintable(card) || !card.window->windowItem())
@@ -1028,6 +1035,8 @@ void StageAnimEffect::reloadLiveCards()
                         if (it2 == m_liveCards.end())
                             return;
                         (*it2)->damageCount++;
+                        (*it2)->lastDamageMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count();
                         // 官方 screencast 同款时序：损伤到达（合成器线程、
                         // 非绘制时机）立即重拍——渲染器重入在这里是安全的。
                         // ⚠️ 限频 30fps：损伤信号可达 60-120Hz，每次重拍都
@@ -1061,12 +1070,19 @@ void StageAnimEffect::reloadLiveCards()
             const bool wasEngaging = card.engaging;
             applyCardMeta(card, std::get<2>(e));
             if (card.engaging && !wasEngaging) {
-                // 展开开始：卡面淡出让位给窗口飞行动画（engaging opacity
-                // 让位已随 chrome 一起搬进特效）
+                // 展开交棒（老 QML 语义完整迁移）：淡出 180ms（ENGAGE_FADE_MS）
+                // 的同时缩回静止尺寸/倾角——窗口从基础矩形长出，卡若停在
+                // 悬停放大位只做淡出 = 尺寸断层（"开始不是同时"的割裂感）
                 card.alphaFrom = card.alpha;
                 card.alphaTo = 0.0;
                 card.fadeTl = TimeLine(std::chrono::milliseconds(180));
                 card.fadeAnimating = true;
+                card.scaleFrom = card.curScale;
+                card.scaleTo = 1.0;
+                card.tiltFrom = card.curTiltDeg;
+                card.tiltTo = card.target.angleDeg;
+                card.hoverTl = TimeLine(std::chrono::milliseconds(180));
+                card.hoverAnimating = true;
             }
             const LiveCardPose &epose = std::get<1>(e);
             const bool poseChanged = card.target.rect != epose.rect
@@ -1087,10 +1103,17 @@ void StageAnimEffect::reloadLiveCards()
                                              << "yOff" << card.target.yOff << "->" << epose.yOff;
                 card.from = currentPose(card);
                 card.target = epose;
-                // 布局补间（v48 控制信道架构）：发布只发终态（布局提交/滚
-                // 轮档位等低速率事件），中间帧由特效补——hoverMs≈280ms
-                // OutCubic，与 QML slot Behavior 同族同拍，90Hz 原生
-                card.ease = TimeLine(card.hoverMs);
+                // 自适应补间：上一变化 <60ms = 逐帧流在跟（拖拽避让/滚动
+                // 期间壳恢复逐帧发布）→ 16ms 微跟随（所见即所得，无速度
+                // 突变）；孤立跳变（布局提交/收编落位）→ hoverMs≈280ms
+                // OutCubic 优雅补间
+                const qint64 poseNow = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count();
+                const bool streaming = card.lastPoseChangeMs > 0
+                    && poseNow - card.lastPoseChangeMs < 60;
+                card.lastPoseChangeMs = poseNow;
+                card.ease = TimeLine(streaming
+                    ? std::chrono::milliseconds(16) : card.hoverMs);
                 card.ease.setDirection(TimeLine::Forward);
                 card.easing = true;
             }

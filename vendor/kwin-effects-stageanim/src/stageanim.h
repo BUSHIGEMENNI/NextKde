@@ -71,6 +71,8 @@ struct LiveCard
     // 诊断计数（LiveTrace 节流日志）
     quint32 damageCount = 0;
     qint64 lastRenderMs = 0; // 损伤重拍限频（30fps 上限）
+    qint64 lastDamageMs = 0; // 最近损伤时刻（动静自适应喂帧判据）
+    qint64 lastPoseChangeMs = 0; // 上次姿态变化（密集流 vs 孤立跳变判据）
     qint64 absentSinceMs = 0; // 发布流缺席起点（掉卡迟滞 350ms）
     int feedPhase = 0; // 非优先卡的帧投喂轮询相位
     quint32 renderCount = 0;

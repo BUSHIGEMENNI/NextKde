@@ -1963,6 +1963,14 @@ PanelWindow {
                 }
                 Behavior on scale { NumberAnimation { duration: StageConfigService.cardEnterDuration; easing.type: Easing.OutCubic } }
 
+                // 动画期逐帧发布（v50 恢复）：让位/重排/滚动/拖拽避让期间
+                // 特效需要中间帧（16ms 微跟随＝所见即所得）；载荷去重挡住
+                // 静止期的桥事件风暴（无变化不写盘）
+                onYChanged: root.scheduleLivePublish()
+                onXChanged: root.scheduleLivePublish()
+                onScaleChanged: root.scheduleLivePublish()
+                onOpacityChanged: root.scheduleLivePublish()
+
                 StageCard {
                     id: card
                     anchors.verticalCenter: parent.verticalCenter
