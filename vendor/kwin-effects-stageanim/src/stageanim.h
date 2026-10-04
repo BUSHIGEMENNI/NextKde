@@ -114,6 +114,7 @@ struct LiveCard
     qint64 spawnDelayMs = 0;
     std::chrono::milliseconds hoverMs{240};
     qreal fanSpacing = 6;
+    qreal fanHoverSpread = 1.4; // 悬停/武装时扇叠间距扩散系数（可调）
     qreal depthStrength = 0.22;
     qreal topLight = 0.10;
     // 悬停状态机（特效自驱：cursorPos 命中静止矩形——与 QML 输入区同界；

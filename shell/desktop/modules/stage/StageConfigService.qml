@@ -31,6 +31,8 @@ QtObject {
         // 自由合并卡视觉：扇叠背板间距（px）/ 左下角图标排的图标大小 /
         // 图标排并列上限（实际还按卡宽动态封顶，超出进 "+N"）
         "fanSpacing":   { type: "int", min: 2, max: 24, def: 8 },
+        // 扇叠悬停扩散系数（悬停/武装时间距 × 此值；1.0 = 不扩散）
+        "fanHoverSpread": { type: "real", min: 1.0, max: 2.0, def: 1.4 },
         "stripIconSize": { type: "int", min: 16, max: 40, def: 24 },
         "maxIconSlots": { type: "int", min: 3, max: 8, def: 5 },
         // 合并手势驻留：被拖卡压在目标卡上停此时长才"武装"并组意图
@@ -99,6 +101,7 @@ QtObject {
     property string layoutMode: "scroll"
     property string side: "left"
     property int fanSpacing: 8
+    property real fanHoverSpread: 1.4
     property int stripIconSize: 24
     property int maxIconSlots: 5
     // ⚠️ 属性默认值 = 无 config.json 时的真实默认（_load 不回填 schema def，

@@ -836,9 +836,12 @@ struct CardMeta
     qreal hoverScale = 1.18, hoverTiltDeg = 0;
     std::chrono::milliseconds hoverMs{240};
     qreal fanSpacing = 6, tintAlpha = 0.55, borderAlpha = 0.28;
+    qreal fanHoverSpread = 1.4;
     qreal depthStrength = 0.22, topLight = 0.10;
     qreal fade = 1.0;   // QML slot.opacity（压暗 × 视口边缘渐隐）
     bool closeHot = false;
+    QString winId;      // 渲染窗口（rep 窗口 id；id 本体=组键，rep 翻转
+                        // 只换此字段 → 特效原地换窗重接，不销毁重注册）
     bool selfMergeHint = false; // 中心合并武装：被拖卡自身亮蓝边框
     bool rightSide = false;     // 右条镜像（扇叠/深度/图标方向）
     bool merged = false;        // 合并卡（拆分芯片；标题让位 50）
@@ -869,6 +872,7 @@ static void applyCardMeta(LiveCard &card, const CardMeta &m)
     card.hoverTiltDeg = m.hoverTiltDeg;
     card.hoverMs = m.hoverMs;
     card.fanSpacing = m.fanSpacing;
+    card.fanHoverSpread = m.fanHoverSpread;
     card.depthStrength = m.depthStrength;
     card.topLight = m.topLight;
     // QML 同款色族：静置 rgba(0.05,0.07,0.12,tint)，悬停 ×1.3 提亮
@@ -1081,6 +1085,9 @@ void StageAnimEffect::reloadLiveCards()
                 meta.hoverMs = std::chrono::milliseconds(
                     std::max(80, o.value(QStringLiteral("hoverMs")).toInt(240)));
                 meta.fanSpacing = o.value(QStringLiteral("fanSpacing")).toDouble(6.0);
+                meta.fanHoverSpread = qBound(1.0,
+                    o.value(QStringLiteral("fanHoverSpread")).toDouble(1.4), 2.0);
+                meta.winId = o.value(QStringLiteral("winId")).toString();
                 meta.tintAlpha = o.value(QStringLiteral("cardTint")).toDouble(0.55);
                 meta.borderAlpha = o.value(QStringLiteral("cardBorder")).toDouble(0.28);
                 meta.depthStrength = o.value(QStringLiteral("cardDepth")).toDouble(0.22);
@@ -1134,12 +1141,16 @@ void StageAnimEffect::reloadLiveCards()
     bool changed = expireAbsentLiveCards();
     for (const auto &e : entries) {
         const QString &eid = std::get<0>(e);
+        // 渲染窗口匹配：优先 winId（v3 协议，id=组键）；旧载荷无 winId
+        // 时回退按 id 匹配（id 即窗口 id）
+        const CardMeta &emeta = std::get<2>(e);
+        const QString winKey = emeta.winId.isEmpty() ? eid : emeta.winId;
         auto it = m_liveCards.find(eid);
         if (it == m_liveCards.end()) {
             EffectWindow *w = nullptr;
             const QList<EffectWindow *> all = effects->stackingOrder();
             for (EffectWindow *c : all) {
-                if (c->internalId().toString(QUuid::WithoutBraces) == eid) {
+                if (c->internalId().toString(QUuid::WithoutBraces) == winKey) {
                     w = c;
                     break;
                 }
@@ -1210,6 +1221,35 @@ void StageAnimEffect::reloadLiveCards()
             LiveCard &card = **it;
             const bool wasEngaging = card.engaging;
             applyCardMeta(card, std::get<2>(e));
+            // rep 翻转（组内激活换 rep 窗口）：同组键下原地换渲染窗口——
+            // 重接源/重拍纹理，姿态/透明度全保留＝零闪烁。旧协议 id=窗口
+            // id 时这是"销毁重注册+入场动画"，同位新旧双重绘＝左侧闪动根因
+            if (!emeta.winId.isEmpty()
+                && (card.window.isNull()
+                    || card.window->internalId().toString(QUuid::WithoutBraces)
+                        != emeta.winId)) {
+                EffectWindow *nw = nullptr;
+                const QList<EffectWindow *> allWins = effects->stackingOrder();
+                for (EffectWindow *c2 : allWins) {
+                    if (c2->internalId().toString(QUuid::WithoutBraces)
+                        == emeta.winId) {
+                        nw = c2;
+                        break;
+                    }
+                }
+                if (nw && !nw->isDeleted()) {
+                    detachLiveCard(card);
+                    card.window = nw;
+                    attachLiveCardSources(card);
+                    card.dirty = true;
+                    card.dpr = nw->screen() ? nw->screen()->scale() : card.dpr;
+                    renderLiveTexture(card);
+                    changed = true;
+                    qCWarning(STAGEANIM_LOG) << "live re-attach"
+                                             << eid.left(12) << "win ->"
+                                             << emeta.winId.left(8);
+                }
+            }
             if (card.dying) {
                 // 复活（发布流抖动/快速去而复返）：重挂更新源，统一状态机
                 // 从当前 alpha 无缝回淡到 1——展开反悔（快速连点）的回淡
@@ -1662,9 +1702,14 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
             pose.angleDeg = card.curTiltDeg;
         }
 
-        // 投影外接框（tiltProject 前向，全部设备像素）
-        const qreal fw = pose.rect.width() * dpr;
-        const qreal fh = pose.rect.height() * dpr;
+        // 投影外接框（tiltProject 前向，全部设备像素）。⚠️ 外扩必须连同
+        // 扇叠一起罩住（卡面局部系偏出主卡 ±fanMax）——老 QML plane 的
+        // fanPad 同款；quad 不够＝扇叠卡被直线裁边＝"堆叠卡变矩形"
+        const int fans = std::min(card.count - 1, 2);
+        const qreal fanMax = fans * card.fanSpacing
+            * std::max(1.0, card.fanHoverSpread) * dpr;
+        const qreal fw = pose.rect.width() * dpr + fanMax * 2;
+        const qreal fh = pose.rect.height() * dpr + fanMax * 2;
         const qreal focal = pose.focal * dpr;
         const qreal yOff = pose.yOff * dpr;
         const QPointF c = pose.rect.center() * dpr;
@@ -1726,21 +1771,25 @@ void StageAnimEffect::drawLiveCards(const RenderTarget &renderTarget,
 
         // 0) 辉光 pass 已撤（v57）：光栅环带在投影视口下渲染异常＝
         //    "奇怪的光影"；悬停视觉先由边框蓝+提亮+深度淡出承担
-        // 1) 扇叠背板（同应用多窗：min(count-1,2) 张，向左上探出；悬停
-        //    间距 ×1.4 = QML"卡片簇吸气"反馈）
-        const int fans = std::min(card.count - 1, 2);
+        // 1) 扇叠背板（同应用多窗：min(count-1,2) 张，**左上**探出——
+        //    老 QML `plate.x − off`（用户定稿方向；条在右镜像到右上）。
+        //    ⚠️ 与主卡同一 quad（外接框已含扇叠外扩），只走 SDF 偏移——
+        //    旧实现 quad 平移 + SDF 偏移双重叠加＝画在 2× 偏移处且超出
+        //    quad 被直线裁边（"堆叠卡变矩形"的真凶）。悬停扩散随
+        //    hoverBlend 渐变（老 QML Behavior 140ms 同族平滑），武装/
+        //    驻留直接全扩（老 dropHovered 同款）；系数可调（fanHoverSpread）
+        const qreal spreadEff = 1.0 + (card.fanHoverSpread - 1.0)
+            * std::max(card.hoverBlend, (fanSpread ? 1.0 : 0.0));
         for (int i = fans - 1; i >= 0; --i) {
-            const qreal off = (i + 1) * card.fanSpacing
-                * (fanSpread ? 1.4 : 1.0) * dpr;
+            const qreal off = (i + 1) * card.fanSpacing * spreadEff * dpr;
             // 老扇叠底色更暗：rgba(0.03,0.05,0.09,…) ≠ 主背板 (0.05,0.07,0.12)
             QColor ft(8, 13, 23);
             ft.setAlphaF(card.tint.alphaF() * (0.85 - i * 0.25));
             QColor fb = card.border;
             fb.setAlphaF(fb.alphaF() * (0.8 - i * 0.25));
-            // 方向镜像：左条左上探出 / 右条右上（老 plate.x±off）
-            const qreal fx = card.rightSide ? -off : off;
+            const qreal fx = card.rightSide ? off : -off;
             const qreal fy = -off;
-            drawPass(*m_cardShader, pose, ix + fx, iy + fy, iw, ih,
+            drawPass(*m_cardShader, pose, ix, iy, iw, ih,
                      QVector2D(float(fx), float(fy)), true, ft, fb,
                      1.0, 0.0, 0.0, nullptr, fadeMul);
         }

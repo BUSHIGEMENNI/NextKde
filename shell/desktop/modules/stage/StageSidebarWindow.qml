@@ -959,7 +959,11 @@ PanelWindow {
                     continue
                 const p = slot.cardItem.liveCardPose(
                     root.hoveredKey === slot.appKey)
-                cards.push({ id: hid, x: p.x, y: p.y, w: p.w, h: p.h,
+                // id = 组键（稳定身份）：engage/合并引起的 rep 翻转只换
+                // winId 字段，特效原地换窗重接——不再销毁重注册＝消灭
+                // "旧卡淡出+新卡入场"同位双重绘（左侧闪动的根因）
+                cards.push({ id: slot.appKey, winId: hid,
+                    x: p.x, y: p.y, w: p.w, h: p.h,
                     angle: p.angle, yOff: p.yOff, focal: p.focal,
                     radius: p.radius,
                     title: p.title, count: p.count, z: p.z,
@@ -979,6 +983,7 @@ PanelWindow {
                     closeHover: slot.cardItem.closeHot,
                     hoverScale: p.hoverScale, hoverTilt: p.hoverTilt,
                     hoverMs: p.hoverMs, fanSpacing: p.fanSpacing,
+                    fanHoverSpread: p.fanHoverSpread,
                     cardTint: p.cardTint, cardBorder: p.cardBorder,
                     cardDepth: p.cardDepth, cardTopLight: p.cardTopLight })
             }
@@ -1042,9 +1047,9 @@ PanelWindow {
             const slot = cardRepeater.itemAt(i)
             if (!slot || !slot.cardItem)
                 continue
-            const hid = WindowService.handleIdOf(slot.targetId)
-            slot.cardItem.livePainted = (hid !== ""
-                && root._liveActiveIds[hid] === true)
+            // 发布/回执 id 已改用组键（稳定身份，rep 翻转不再换 id）
+            slot.cardItem.livePainted =
+                root._liveActiveIds[slot.appKey] === true
         }
     }
 

@@ -192,6 +192,7 @@ Item {
             enterMs: StageConfigService.cardEnterDuration,
             animMs: StageConfigService.animDuration,
             fanSpacing: StageConfigService.fanSpacing,
+            fanHoverSpread: StageConfigService.fanHoverSpread,
             cardTint: StageConfigService.cardTint,
             cardBorder: StageConfigService.cardBorder,
             cardDepth: StageConfigService.cardDepth,
