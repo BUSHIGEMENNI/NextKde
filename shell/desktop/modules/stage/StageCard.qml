@@ -158,6 +158,11 @@ Item {
     // y 也必须挂：滚动（layoutCards 的 scroll 偏移走 slot.y）只改 y——
     // 漏挂 = 滚动后卡已滚走、内容还停在旧姿态（"内容不在卡片里"帮凶）
     onYChanged: livePoseDirty()
+    // 切侧也必须挂：方向符号在下游 angleRad/liveCardPose 里取
+    //（tiltCur 是不带符号的幅值），切侧时 y/x/scale/tiltCur 全不变
+    //= 没有任何信号触发发布，特效按旧角度+旧 rightSide 画到下一次
+    // hover 才纠正（"切侧后倾斜角不对、划一下鼠标就好"的根因）
+    onRightSideChanged: livePoseDirty()
     // v2：发布**静止姿态** + 卡面元数据。悬停放大/压平动画不再由 QML
     // 驱动（特效 cursorPos 自驱，同管线像素级同步）——这里除放
     // card.scale（TopLeft 变换原点下原点不动，仅 w/h 回到静止尺寸），
