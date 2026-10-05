@@ -2147,8 +2147,10 @@ PanelWindow {
             // 给底部 dock 让位：末卡（含辉光/悬停放大/扇叠外扩，布局内的
             // GLOW_PAD 已计辉光）不得压进 dock 屏幕区挡住图标。dock 厚度取
             // dock 模块 ConfigService.baseHeight（qmldir 注册名单例，用户
-            // 可调 40–100，随 dock 设置实时跟随）
-            bottomMargin: ConfigService.baseHeight + 14
+            // 可调 40–100，随 dock 设置实时跟随）；+24 覆盖浮动样式的上下
+            // 呼吸边距（edgeMargin = max(4, 0.12h)，双侧 ≤24）——旧 +14
+            // 在加厚 dock（h≥60）下视口折线落进 dock 玻璃上沿
+            bottomMargin: ConfigService.baseHeight + 24
         }
         width: root.panelW
 
@@ -2239,7 +2241,11 @@ PanelWindow {
                     const h = StageConfigService.cardHeight
                     const fade = h * 0.45
                     const top = (slot.y + h) / fade
-                    const bot = (cards.height - slot.y) / fade
+                    // 底缘按**卡底**计（dock 让位修复）：滚动越界的卡按
+                    // 隐藏深度淡出——特效直绘在合成器里不受 QML 视口 clip
+                    // 约束，旧公式按卡顶算，顶还在视口内的越界卡不淡出＝
+                    // 满 alpha 画进底部 dock 区盖住图标（点击也被 mask 吃掉）
+                    const bot = (cards.height - slot.y - h) / fade + 1
                     return Math.max(0, Math.min(1, Math.min(top, bot)))
                 }
                 // 压暗过渡：dimmed 由 layoutCards 直写，无阻尼会让
@@ -3329,7 +3335,11 @@ PanelWindow {
             stripHitRegion.x = root.rightSide ? root.width - 12 : 0
             stripHitRegion.y = 0
             stripHitRegion.width = 12
+            // 贴缘热区不伸进底部 dock 带（dock 让位修复）：收起态全高
+            // 细条会吃掉 dock 左端图标的点击
             stripHitRegion.height = root.height
+                - (ConfigService.position === "bottom"
+                    ? ConfigService.baseHeight + 24 : 0)
             return
         }
         // ⚠️ width 必须显式复位：拖拽分支把它扩成全窗宽，漏复位 = 卡片
@@ -3337,6 +3347,10 @@ PanelWindow {
         stripHitRegion.width = root.panelW
         stripHitRegion.x = cards.x
         stripHitRegion.y = Math.max(0, Math.floor(top) - StageGeo.GLOW_PAD)
+        // 输入下界钳到视口底（dock 让位修复）：滚动越界的卡不参与命中
+        //——mask 越过视口会盖住底部 dock 的图标点击（Overlay 层窗口
+        // 的 mask 是唯一输入闸，dock 在 Top 层永远抢不回来）
+        bottom = Math.min(bottom, cards.y + cards.height)
         stripHitRegion.height = Math.ceil(bottom - stripHitRegion.y)
             + StageGeo.GLOW_PAD
     }
