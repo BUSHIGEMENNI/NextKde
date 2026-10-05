@@ -113,6 +113,10 @@ function _centerPositions(positions, availH, contentBottom) {
 // 返回 { positions[], scales[], zs[], dims[], scale, pitch, scrollMax }——
 // positions 已含 scroll 偏移；pitch 供滚轮步进、scrollMax 供滚动上限；
 // scale 为基础缩放兜底值。
+// 溢出居中块的两侧最小对称净空：低于此值少显示一张卡——居中必须
+// 肉眼可辨（34px 级净空与顶锚无异，用户实测分不出）
+export const MIN_CENTER_PAD = 40
+
 export function scrollLayout(availH, count, opts = {}) {
     // NaN 全防线：Number.isFinite 只放过有限数（NaN/undefined 走默认），
     // ?? 挡不住 NaN（NaN ?? x 仍是 NaN，Math.max(NaN,1) 会把整列布局
@@ -147,8 +151,15 @@ export function scrollLayout(availH, count, opts = {}) {
     if (fits) {
         top0 = center ? (availH - contentH) / 2 : 0
     } else {
-        // 可视完整卡数 k：块高 k·ch+(k−1)·sp ≤ availH，块居中
-        const k = Math.max(1, Math.floor((availH + spacing) / pitch))
+        // 可视完整卡数 k：块高 k·ch+(k−1)·sp ≤ availH，块居中。
+        // **可感知居中**（用户复诉"还是顶着上面"）：34px 级净空与顶锚
+        // 视觉无法区分——块两侧至少留 MIN_CENTER_PAD 对称净空，不够就
+        // 少显示一张卡（多出的卡本就藏折叠线下滚动翻看）
+        let k = Math.max(1, Math.floor((availH + spacing) / pitch))
+        while (k > 1
+                && (availH - (k * ch + (k - 1) * spacing)) / 2
+                    < MIN_CENTER_PAD)
+            k--
         const block = k * ch + (k - 1) * spacing
         top0 = center ? Math.max(0, (availH - block) / 2) : 0
     }

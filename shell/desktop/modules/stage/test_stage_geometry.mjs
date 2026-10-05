@@ -78,14 +78,15 @@ check("scroll: centerCards=true centers",
 // 多出的卡藏折叠线下，滚动翻看；尺寸旋钮 1:1 生效（无缩放）
 lay = scrollLayout(1000, 8, { spacing: 16 });
 check("scroll: overflow keeps full size", lay.scale, 1);
-check("scroll: visible block centered (top0 = pad/2)",
-    lay.positions[0], 16);
+// k=6 块 968 净空 16 < MIN_CENTER_PAD(40) → 退 k=5 块 804 净空 98
+check("scroll: block keeps min center pad (top0 = 98)",
+    lay.positions[0], 98);
 check("scroll: centered block is k complete cards",
-    Math.round(lay.positions[5] + 148), 984);
-check("scroll: 7th card hidden below fold",
-    Math.round(lay.positions[6]), 16 + 6 * 164);
+    Math.round(lay.positions[4] + 148), 98 + 4 * 164 + 148);
+check("scroll: 6th card hidden below fold",
+    Math.round(lay.positions[5]), 98 + 5 * 164);
 check("scroll: scrollMax centers last window",
-    lay.scrollMax, 16 + 7 * 164 + 148 - 1000 + 22);
+    lay.scrollMax, 98 + 7 * 164 + 148 - 1000 + 22);
 const atMax = scrollLayout(1000, 8,
     { spacing: 16, scroll: lay.scrollMax });
 check("scroll: at max scroll last card bottom = avail - glowPad",
@@ -96,9 +97,9 @@ check("scroll: overflow centerCards=false top anchors",
     lay.positions[0], 0);
 // 滚动偏移：positions 整体 −scroll
 lay = scrollLayout(1000, 8, { spacing: 16, scroll: 300 });
-check("scroll: offset applied", lay.positions[0], 16 - 300);
+check("scroll: offset applied", lay.positions[0], 98 - 300);
 check("scroll: offset uniform", Math.round(lay.positions[7]),
-    16 + 7 * 164 - 300);
+    98 + 7 * 164 - 300);
 // ③ 聚焦原位退避（avail 1000, n=5, sp 16 → pitch 164，content 804，
 // top0=98，基础 [98,262,426,590,754]，retreat 默认 20）
 lay = scrollLayout(1000, 5, { spacing: 16, hoveredIndex: 2 });
