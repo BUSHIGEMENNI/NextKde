@@ -869,23 +869,20 @@ void StageAnimEffect::slotWindowDeleted(EffectWindow *w)
     m_animations.remove(w);
     m_connected.remove(w);
 
-    // 活体卡生命周期：卡片窗口死亡 → 撤引用并除名。dying 卡例外——让
-    // 统一状态机用冻结纹理走完淡出（立即释放＝淡出截断成瞬消 pop）；它
-    // 会在 alpha 到 0 后被正常清扫（card.window 已空，release 的守卫安全）
-    QList<QString> dead;
+    // 活体卡生命周期：卡片窗口死亡 → 进 dying 统一淡出（150ms），冻结
+    // 纹理/姿态由状态机走完后清扫（card.window 已空，release 的守卫安全）。
+    // 旧版健康卡立即释放除名＝瞬消 pop（用户实测"点关闭钮卡片直接消失
+    // 不丝滑"，v89 修复）——dying 路径本来就有：缺席踢除/交棒淡出全走它
     for (auto it = m_liveCards.begin(); it != m_liveCards.end(); ++it) {
-        if ((*it)->dying)
+        LiveCard &card = **it;
+        if (card.dying)
             continue;
-        if ((*it)->window == w || (*it)->window.isNull()) {
-            releaseLiveCard(**it);
-            dead.append(it.key());
+        if (card.window == w || card.window.isNull()) {
+            detachLiveCard(card);
+            card.dying = true;
+            card.enterHold = false;
+            card.fadeAnimating = false; // 状态机一次性起淡
         }
-    }
-    if (!dead.isEmpty()) {
-        for (const QString &id : dead)
-            m_liveCards.remove(id);
-        updateLiveFrameTimer();
-        writeLiveStatus();
     }
 }
 
