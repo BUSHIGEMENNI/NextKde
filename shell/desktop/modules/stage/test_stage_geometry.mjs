@@ -65,24 +65,40 @@ check("scroll: few cards keep natural spacing",
     Math.round(lay.positions[1] - lay.positions[0]), 164);
 check("scroll: two cards centered as block",
     lay.positions.map(p => Math.round(p)), [344, 508]);
-// ② 溢出：居中锚 + 滚动上限（8 张 content = 7·164+148 = 1296 > 1000，
-// 溢出 296 → 静息 top0 = −148：首末卡各探出半截＝列视觉居中）
+// ② 溢出先缩放全显（用户定稿"约束内居中显示"）：8 张 content =
+// 7·164+148 = 1296 > 1000 → 整列缩到 1000/1296，全部可见整体居中、
+// 无 peek 无滚动
 lay = scrollLayout(1000, 8, { spacing: 16 });
-check("scroll: overflow centered rest (top0 = -overflow/2)",
-    lay.positions[0], -148);
-check("scroll: overflow rest last card peeks below fold",
-    Math.round(lay.positions[7] + 148), 1148);
+const shrink = 1000 / 1296;
+check("scroll: overflow shrinks to fit", Math.round(lay.scale * 1e4),
+    Math.round(shrink * 1e4));
+check("scroll: shrunk stack centered (top0 = 0)",
+    Math.abs(lay.positions[0]) < 0.5, true);
+check("scroll: shrunk means no scroll", lay.scrollMax, 0);
+check("scroll: all cards at shrink scale",
+    lay.scales.every(x => Math.abs(x - shrink) < 1e-9), true);
+// ③ 触底下限才回落滚动（10 张 raw = 9·164+148 = 1624，0.66 floor →
+// content 1071.84 > 1000：居中锚 peek + 滚到头贴边）
+lay = scrollLayout(1000, 10, { spacing: 16 });
+check("scroll: floor scale when below fit floor",
+    lay.scale, 0.66);
+const content10 = 0.66 * 1624;
+check("scroll: floor rest top0 = -(overflow/2)",
+    Math.round(lay.positions[0] * 100) / 100,
+    Math.round((1000 - content10) / 2 * 100) / 100);
 check("scroll: scrollMax = overflow/2 + glowPad",
-    lay.scrollMax, 148 + 22);
-const atMax = scrollLayout(1000, 8,
+    Math.round(lay.scrollMax * 100) / 100,
+    Math.round((content10 - 1000) / 2 * 100) / 100 + 22);
+const atMax = scrollLayout(1000, 10,
     { spacing: 16, scroll: lay.scrollMax });
 check("scroll: at max scroll last card bottom = avail - glowPad",
-    Math.round(atMax.positions[7] + 148), 1000 - 22);
+    Math.round(atMax.positions[9] + 148 * 0.66), 1000 - 22);
 // 滚动偏移：positions 整体 −scroll
-lay = scrollLayout(1000, 8, { spacing: 16, scroll: 300 });
-check("scroll: offset applied", lay.positions[0], -148 - 300);
-check("scroll: offset uniform", Math.round(lay.positions[7]),
-    -148 + 7 * 164 - 300);
+lay = scrollLayout(1000, 10, { spacing: 16, scroll: 300 });
+check("scroll: offset applied", Math.round(lay.positions[0]),
+    Math.round((1000 - content10) / 2) - 300);
+check("scroll: offset uniform", Math.round(lay.positions[9]),
+    Math.round((1000 - content10) / 2 + 9 * 164 * 0.66) - 300);
 // ③ 聚焦原位退避（avail 1000, n=5, sp 16 → pitch 164，content 804，
 // top0=98，基础 [98,262,426,590,754]，retreat 默认 20）
 lay = scrollLayout(1000, 5, { spacing: 16, hoveredIndex: 2 });

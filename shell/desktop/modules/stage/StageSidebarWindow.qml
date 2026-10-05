@@ -2147,13 +2147,15 @@ PanelWindow {
             top: parent.top
             topMargin: ConfigService.barHeight + 32
             bottom: parent.bottom
-            // 给底部 dock 让位：末卡（含辉光/悬停放大/扇叠外扩，布局内的
-            // GLOW_PAD 已计辉光）不得压进 dock 屏幕区挡住图标。dock 厚度取
-            // dock 模块 ConfigService.baseHeight（qmldir 注册名单例，用户
-            // 可调 40–100，随 dock 设置实时跟随）；+24 覆盖浮动样式的上下
-            // 呼吸边距（edgeMargin = max(4, 0.12h)，双侧 ≤24）——旧 +14
-            // 在加厚 dock（h≥60）下视口折线落进 dock 玻璃上沿
-            bottomMargin: ConfigService.baseHeight + 24
+            // 给底部 dock 让位 + 滚动指示条车道：末卡（含辉光/悬停放大/
+            // 扇叠外扩，布局内的 GLOW_PAD 已计辉光）不得压进 dock 屏幕区
+            // 挡住图标。dock 厚度取 dock 模块 ConfigService.baseHeight
+            //（qmldir 注册名单例，用户可调 40–100，随 dock 设置实时跟随）；
+            // +24 覆盖浮动样式的上下呼吸边距（edgeMargin = max(4, 0.12h)，
+            // 双侧 ≤24），再 +24 是指示条专属车道（见下方 indicatorRow 注
+            // 释——特效卡在折叠线渐隐为零，车道内的 QML 指示条两种模式
+            // 都恒在且永不被合成器卡面盖住）
+            bottomMargin: ConfigService.baseHeight + 48
         }
         width: root.panelW
 
@@ -2369,21 +2371,17 @@ PanelWindow {
         }
 
         // ── 底部提示条：位置点（当前视口内高亮）+ 总窗数（用户要求的
-        // "小小缩略提示"）。不随滚动移动；点数封顶 12，更多以省略号收尾。
-        // z 抬到所有卡之上（卡的 slot.z ≥ 1，默认 0 会被滚过来的卡盖住）。
-        // 瞬态显示（滚动居中修复配套）：仅在滚动进行中/停止后 1.6s 内
-        // 可见——常驻版在滚到底时正好盖住末卡（用户实测"最下面被盖上"），
-        // 居中溢出后首末半截卡本身就是"还有更多"的视觉信号
+        // "小小缩略提示"）。**专属车道**（用户定稿"常驻置顶"）：住在折叠
+        // 线之下的保留带里——特效直绘卡经 edgeFade 在折叠线渐隐为零、
+        // QML 卡被视口 clip，两种模式下这里都永远可见且不被盖住；旧版
+        // 钉在折叠线上（z:1000 只管 QML 场景，实时模式被合成器卡面盖住，
+        // 静态模式盖住滚到底的末卡）。点数封顶 12，更多以省略号收尾
         Rectangle {
             visible: cardModel.count > 0
-            opacity: _scrollHintTimer.running ? 1 : 0
-            Behavior on opacity {
-                NumberAnimation { duration: 250 }
-            }
             z: 1000
             anchors {
-                bottom: parent.bottom
-                bottomMargin: 2
+                top: parent.bottom
+                topMargin: 4
                 horizontalCenter: parent.horizontalCenter
             }
             width: indicatorRow.implicitWidth + 16
@@ -2597,11 +2595,9 @@ PanelWindow {
     property real scrollOffset: 0
     property real _lastPitch: 0     // 上一轮布局的槽距（滚轮步进用）
     property real _maxScroll: 0     // contentH − 视口高（0 = 不可滚）
-    property Timer _scrollHintTimer: Timer { interval: 1600 }
     onScrollOffsetChanged: {
         layoutCards(true)
         _scrollRepublish.restart()
-        _scrollHintTimer.restart()
     }
     // 滚动停止后重发布目标矩形（去抖 120ms：滚动途中窗口不收编，
     // 矩形只在与屏幕卡面对齐时才有意义）
