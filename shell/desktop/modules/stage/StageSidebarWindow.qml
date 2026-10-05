@@ -2139,10 +2139,13 @@ PanelWindow {
             // 发布姿态经 mapToItem 自动跟随
             + (root.rightSide ? root._retractPx : -root._retractPx)
         anchors {
-            // 顶距跟随顶栏厚度（barHeight 默认 35 + 11 视觉间隙 = 46，删
-            // 除"Stage"标题时代的等效值）；别的机器调高顶栏时卡片跟着让位
+            // 顶距跟随顶栏厚度 + 扇叠/辉光上探余量（顶栏让位修复）：
+            // 多窗卡的扇叠背板向左上探出（静置 ~16px、悬停扩散 ~26-
+            // 40px），叠加辉光外扩 ~14px——旧 +11 会让首卡悬停时装饰层
+            // 压进顶栏底缘；+32 后静置留 ~16px 视觉间隙、悬停扇叠不越
+            // 顶栏底线。别的机器调高顶栏时卡片跟着让位
             top: parent.top
-            topMargin: ConfigService.barHeight + 11
+            topMargin: ConfigService.barHeight + 32
             bottom: parent.bottom
             // 给底部 dock 让位：末卡（含辉光/悬停放大/扇叠外扩，布局内的
             // GLOW_PAD 已计辉光）不得压进 dock 屏幕区挡住图标。dock 厚度取
@@ -2240,7 +2243,10 @@ PanelWindow {
                 readonly property real edgeFade: {
                     const h = StageConfigService.cardHeight
                     const fade = h * 0.45
-                    const top = (slot.y + h) / fade
+                    // 上缘按**卡顶**越界深度计（顶栏让位修复，与底缘对称）：
+                    // 滚动越顶的卡按隐藏比例淡出——特效直绘不受 QML 视口
+                    // clip 约束，旧公式按卡底算，半出的卡满 alpha 画进顶栏
+                    const top = 1 + slot.y / fade
                     // 底缘按**卡底**计（dock 让位修复）：滚动越界的卡按
                     // 隐藏深度淡出——特效直绘在合成器里不受 QML 视口 clip
                     // 约束，旧公式按卡顶算，顶还在视口内的越界卡不淡出＝
@@ -3177,8 +3183,21 @@ PanelWindow {
         // 组顺序表对账：剪除已消失 + 补全新组（只 prune 会退化成空表，
         // 见 stage-groups.mjs 的 mergeOrder 注释）
         const liveKeys = desired.map(d => d.appKey)
+        // 在途 swap 的被点键过剪枝保位（换位修复）：还原与最小化落在
+        // 两次快照时，中间那次对账会把已离场的被点键剪出顺序表——
+        // 提交门再跑 applySwapOrder 时 clickedIdx=-1 走尾插兜底＝退位
+        // 组沉到队尾、下方卡上移补位（"没有位置互换"的根源，实测
+        // engage 后新卡排队尾）。键保住在原位；swap 被提交门消费或
+        // TTL 过期清除后，常规剪枝自然恢复
+        const heldKeys = liveKeys.slice()
+        for (let s = 0; s < root._pendingSwaps.length; s++) {
+            const ck = root._pendingSwaps[s].clicked
+            if (root._groupOrder.indexOf(ck) >= 0
+                    && heldKeys.indexOf(ck) < 0)
+                heldKeys.push(ck)
+        }
         root._groupOrder = StageGroups.mergeOrder(root._groupOrder,
-            liveKeys)
+            heldKeys)
         const current = []
         for (let i = 0; i < cardModel.count; i++)
             current.push(cardModel.get(i))
@@ -3346,12 +3365,15 @@ PanelWindow {
         // 纵向范围内整行屏幕的点击永远被吞（"点桌面收不起来"的根源）
         stripHitRegion.width = root.panelW
         stripHitRegion.x = cards.x
-        stripHitRegion.y = Math.max(0, Math.floor(top) - StageGeo.GLOW_PAD)
-        // 输入下界钳到视口底（dock 让位修复）：滚动越界的卡不参与命中
-        //——mask 越过视口会盖住底部 dock 的图标点击（Overlay 层窗口
-        // 的 mask 是唯一输入闸，dock 在 Top 层永远抢不回来）
+        // 上下界都钳到容器范围（顶栏/dock 让位修复）：滚动越界的卡不
+        // 参与命中——mask 越过视口会盖住底部 dock 的图标点击与顶栏
+        //（Overlay 层窗口的 mask 是唯一输入闸，它们在 Top 层永远抢不
+        // 回来）；y 先钳再算 height（顺序反了会留下陈旧高度）
+        stripHitRegion.y = Math.max(cards.y,
+            Math.floor(top) - StageGeo.GLOW_PAD)
         bottom = Math.min(bottom, cards.y + cards.height)
-        stripHitRegion.height = Math.ceil(bottom - stripHitRegion.y)
+        stripHitRegion.height = Math.max(0,
+            Math.ceil(bottom - stripHitRegion.y))
             + StageGeo.GLOW_PAD
     }
 }
