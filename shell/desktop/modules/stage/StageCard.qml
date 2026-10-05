@@ -42,6 +42,7 @@ Item {
     required property string idsJson // 组内全部窗口 id 的 JSON 数组
     // 每窗图标（与 idsJson 平行；自由合并组内各应用图标不同）
     required property string iconsJson
+    required property string iconIdsJson
     required property bool merged // 自由合并卡（右键拆分）
     // 拖拽合并手势的落点高亮（窗口侧按 _dropMergeKey 绑定）
     property bool dropHovered: false
@@ -102,20 +103,25 @@ Item {
             return []
         }
     }
-    // 图标排消费的对（icon, id）：按图标源去重——同应用多窗只留一枚
-    //（点击直达该应用首个窗口），窗口总数由标题 ×N 表达。不去重时
-    // 同应用合并卡会重复出现 N 个相同图标（用户实测困惑）
-    readonly property var iconPairs: {
-        const ids = windowIds
-        const icons = windowIcons
-        const seen = new Set()
-        const out = []
-        for (let i = 0; i < icons.length && i < ids.length; i++) {
-            if (seen.has(icons[i]))
-                continue
-            seen.add(icons[i])
-            out.push({ icon: icons[i], id: ids[i] })
+    // 与 windowIcons 索引对齐的窗口 id（decorateGroups 去重时记的首现窗）
+    readonly property var windowIconIds: {
+        try {
+            const arr = JSON.parse(iconIdsJson || "[]")
+            return Array.isArray(arr) ? arr : []
+        } catch (e) {
+            return []
         }
+    }
+    // 图标排消费的对（icon, id）：图标按源去重——同应用多窗只留一枚
+    //（点击直达该应用首个窗口），窗口总数由标题 ×N 表达。id 取自与
+    // icons 同源去重的 iconIds——旧实现拿全量 windowIds 按位 zip，重复
+    // 图标排在异图标之前时会错位激活同应用兄弟窗（v87 审查）
+    readonly property var iconPairs: {
+        const icons = windowIcons
+        const ids = windowIconIds
+        const out = []
+        for (let i = 0; i < icons.length && i < ids.length; i++)
+            out.push({ icon: icons[i], id: ids[i] })
         return out
     }
     // 图标排并列上限（stage-config maxIconSlots，设置页可调）；实际
@@ -182,6 +188,12 @@ Item {
     //再 150ms 淡出＝放大后旧卡位残影一闪（v80 交棒淡出在这些路径从未
     // 生效的真因；窗口还原销毁委托比下一次发布更快，标记必须同拍出帧）
     onEngagingChanged: livePoseDirty()
+    // closeHover/mergeGlow 同族（v87 审查）：scroll 模式下指针从卡面移到
+    // 关闭钮，isHovered 合成值不变、姿态全不动＝零触发，特效红钮要等
+    // 15s 心跳；mergeGlow 1.8s 到期翻转时指针早已离开同理。载荷字段
+    // 的每个输入都必须有发布触发
+    onCloseHotChanged: livePoseDirty()
+    onMergeGlowChanged: livePoseDirty()
     // v2：发布**静止姿态** + 卡面元数据。悬停放大/压平动画不再由 QML
     // 驱动（特效 cursorPos 自驱，同管线像素级同步）——这里除放
     // card.scale（TopLeft 变换原点下原点不动，仅 w/h 回到静止尺寸），
@@ -226,7 +238,6 @@ Item {
             cardBorder: StageConfigService.cardBorder,
             cardDepth: StageConfigService.cardDepth,
             cardTopLight: StageConfigService.cardTopLight,
-            cardGlow: StageConfigService.cardGlow,
             rightSide: card.rightSide,
             merged: card.merged,
             showCardTitle: StageConfigService.showCardTitle,

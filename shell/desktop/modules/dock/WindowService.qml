@@ -374,12 +374,15 @@ QtObject {
                     changed = true;
             }
         }
-        if (!changed)
-            return;
-
+        // readiness 置位必须在 early-return 之前（v87 审查）：零窗首次
+        // 收集 changed=false 直接返回＝_foreignRebuiltOnce 永不置位，
+        // providerReady 契约（"first collection done, even when zero
+        // windows"）被打破，非 KWin 合成器路径的 dock 首拍碰撞判定悬空
         svc._hasRebuiltOnce = true;
         if (!useKwin)
             svc._foreignRebuiltOnce = true;
+        if (!changed)
+            return;
 
         if (!presentationChanged) {
             for (let i = 0; i < nextRecords.length; i++)
@@ -435,12 +438,26 @@ QtObject {
         svc._recordsById = nextById;
         const active = nextRecords.find(record => record.toplevel.activated);
         svc.activeWindowId = active?.windowId ?? "";
+        // MRU 时间戳（v87 审查）：dock 多窗应用点击应激活"最近用过的窗"
+        // 而不是 records 序首窗——历史行为与注释语义不符。copy-on-write
+        //（var 属性原地变异不发通知，v82 P0 同款坑）
+        if (active) {
+            const stamps = Object.assign({}, svc._lastActivatedAt)
+            stamps[active.windowId] = Date.now()
+            svc._lastActivatedAt = stamps
+        }
         svc.revision++;
         // Add/remove, minimization and desktop membership also affect
         // collision eligibility, so presentation updates notify both lanes.
         svc.placementRevision++;
         svc._pruneThumbnails(nextRecords);
         svc._pruneProcessHints(nextRecords);
+    }
+
+    // windowId → 最近一次成为活动窗的时间戳（0 = 未知，排最后）
+    property var _lastActivatedAt: ({})
+    function lastActivatedAtOf(windowId) {
+        return _lastActivatedAt[windowId] || 0
     }
 
     // Thumbnail state is keyed by KWin's window handle, which dies with the
@@ -503,13 +520,27 @@ QtObject {
             const inFlight = Object.assign({}, svc._processProbeByPid);
             delete inFlight[pid];
             svc._processProbeByPid = inFlight;
+            // pid 仍在当前 records 里才入缓存（v87 审查）：probe 在途期间
+            // 窗口关闭（或被剪枝销毁后 exited 仍触发）时，把已死 pid 的
+            // hints 塞回缓存＝pid 复用后污染无关新窗的身份。rebuild 循环
+            // 是同步的，exited 异步到达时 records 已含新窗快照
+            let stillLive = false;
+            const recs = svc.records || [];
+            for (let i = 0; i < recs.length; i++) {
+                if (recs[i].pid === pid) {
+                    stillLive = true;
+                    break;
+                }
+            }
             // An empty result is cached too: a window that cannot be identified
             // must not be probed again on every rebuild.
-            const resolved = Object.assign({}, svc._processHintsByPid);
-            resolved[pid] = hints;
-            svc._processHintsByPid = resolved;
+            if (stillLive) {
+                const resolved = Object.assign({}, svc._processHintsByPid);
+                resolved[pid] = hints;
+                svc._processHintsByPid = resolved;
+            }
             probe.destroy();
-            if (hints.length)
+            if (hints.length && stillLive)
                 svc._scheduleUpdate();
         });
         probe.running = true;
@@ -704,11 +735,15 @@ QtObject {
 
     function minimizeAllWindows() {
         const current = svc.records || [];
+        const ids = [];
         for (let i = 0; i < current.length; i++) {
-            const record = current[i];
-            if (!record.toplevel?.minimized)
-                minimizeWindow(record.windowId, true);
+            if (!current[i].toplevel?.minimized)
+                ids.push(current[i].windowId);
         }
+        // 原子批量（v87 审查）：逐窗 minimizeWindow 在桥侧 50ms/条排队，
+        // N 窗阶梯延迟——与 minimizeGroup 的注释规约一致（多窗批量一律
+        // 走它）
+        minimizeGroup(ids, true);
     }
 
     // 整组原子最小化：逐窗命令在桥侧 50ms/条排队（shell 侧的合并槽只
@@ -767,18 +802,17 @@ QtObject {
         if (unminimized.length > 0) {
             // There are visible open windows on current desktop: minimize all of them
             _minimizedByShowDesktop = unminimized.map(r => r.windowId);
-            for (let i = 0; i < unminimized.length; i++) {
-                minimizeWindow(unminimized[i].windowId, true);
-            }
+            minimizeGroup(_minimizedByShowDesktop, true);
         } else {
             // All windows on current desktop are minimized: restore previously minimized or all
-            const toRestore = _minimizedByShowDesktop.length > 0
+            // （恢复集过滤已消失的 id：窗口在收起期间关闭时，逐条发死 id
+            // 只会在桥侧留 warn——v87 审查）
+            const toRestore = (_minimizedByShowDesktop.length > 0
                 ? _minimizedByShowDesktop
-                : currentDeskWindows.map(r => r.windowId);
+                : currentDeskWindows.map(r => r.windowId))
+                .filter(id => !!windowById(id));
 
-            for (let i = 0; i < toRestore.length; i++) {
-                minimizeWindow(toRestore[i], false);
-            }
+            minimizeGroup(toRestore, false);
             _minimizedByShowDesktop = [];
         }
     }

@@ -264,6 +264,13 @@ PanelWindow {
     property Timer _minimizeDispatchTimer: Timer {
         interval: StageConfigService.demoteDispatchDelay
         onTriggered: {
+        // 模式关闭/面板隐藏后不派发（v87 审查，与 _dispatchNextEngage
+        // 同款守卫）：关闭侧栏的用户不该看到窗口随后被收进一个已经
+        // 不存在的卡列
+        if (!StageModeService.enabled || !root.open) {
+            root._pendingMinimize = []
+            return
+        }
         const t = root._pendingMinimize
         root._pendingMinimize = []
         // 原子整组最小化：N 窗一条命令一个桥轮询拍内落地（逐窗排队会把
@@ -324,6 +331,12 @@ PanelWindow {
             //（focus 路径 150ms 起拍、330ms 才派发），取消它＝最小化
             // 永远不落地（"卡出现了程序没收回去"的根因，实测竞态差
             // ~10ms）。真正的属主取消留给有新活动窗的分支。
+            return
+        // 桌面开关让路（v87 审查）：放出路径先 _exitDeskReveal 清开关集
+        // 再激活，autoMin 的开关集守卫（下方）只护收编方向——激活落地后
+        // 650ms 周期扫到的"异应用可见窗"恰是刚放出的多应用开关集＝整批
+        // 扫回卡。与 _deskCollectYielded 的 toggle 分量同窗
+        if (Date.now() - root._lastDeskToggleAt < _deskFocusYieldMs)
             return
         // 显示桌面开关属主判定：活动窗在开关集里＝桌面收编管线正在收
         // 它（toggle 连活动窗一起收），autoMin 的"保护活动应用"语义会把
@@ -478,6 +491,13 @@ PanelWindow {
             console.warn("[StageSidebar] engage-swap failed, card reset ("
                 + "ticket=" + ticket + ")")
         }
+        // dock 点击的同拍收编（原独立 Connections 块，v87 审查并入——
+        // 同一目标拆两块会让后来者以为有语义差异）：点击瞬间就锁退位窗
+        //（不等 KWin 事件经桥 120ms 防抖绕回来）；卡片点击路径用
+        // _engagingDispatch 防重入，维持自己的 engageDelay 卡片交棒时序
+        function onActivationRequested(windowId) {
+            root.activateWithSwap(windowId)
+        }
     }
 
     // ── dock 点击的同拍收编：订阅 WindowService.activationRequested ──
@@ -523,13 +543,6 @@ PanelWindow {
         _cancelPendingDemote()
         captureAndDemote(_demoteGroupIds(demotedId),
             root._effKey(activeRec), false)
-    }
-
-    Connections {
-        target: WindowService
-        function onActivationRequested(windowId) {
-            root.activateWithSwap(windowId)
-        }
     }
 
     // ── 激活切换（Alt-Tab 等 shell 外部路径）的同拍收编兜底 ──
@@ -646,20 +659,19 @@ PanelWindow {
     readonly property int _deskHoldReleaseMs: 600      // 扣卡兜底释放（< 让路）
 
     // 桌面窗 id 集合（按最小化状态过滤；pid>0 且在当前桌面）——收编目标
-    // 与死态复活共用同一口径。无 pid 的 KWin 内部表面不碰。
+    // 与死态复活共用同一口径。口径单一出处走 groupRecords（v87 审查收敛：
+    // 手写内联过滤与 groupRecords 漂移＝v81 视图/发布口径分裂的同型温床）
     function _desktopWindowIds(wantMinimized) {
-        const currentId = WindowService.currentDesktopId
-        const records = WindowService.records || []
+        const groups = StageGroups.groupRecords(WindowService.records || [], {
+            requirePid: true,
+            requireMinimized: wantMinimized ? true : undefined,
+            requireNotMinimized: wantMinimized ? undefined : true,
+            desktopId: WindowService.currentDesktopId,
+        })
         const out = []
-        for (let i = 0; i < records.length; i++) {
-            const r = records[i]
-            if (!(r.pid > 0))
-                continue
-            if (r.toplevel?.minimized !== !!wantMinimized)
-                continue
-            if (StageGroups.isOnDesktop(r, currentId))
-                out.push(r.windowId)
-        }
+        for (let i = 0; i < groups.length; i++)
+            for (let j = 0; j < groups[i].wins.length; j++)
+                out.push(groups[i].wins[j].windowId)
         return out
     }
 
@@ -1057,7 +1069,6 @@ PanelWindow {
                     chipHot: p.chipHot, iconsJson: p.iconsJson,
                     engagingTilt: p.engagingTilt, tiltMs: p.tiltMs,
                     enterMs: p.enterMs, animMs: p.animMs,
-                    cardGlow: p.cardGlow,
                     engaging: engaging,
                     dropHover: slot.cardItem.dropHovered,
                     dwellHint: slot.cardItem.dwellHint,
@@ -1384,11 +1395,17 @@ PanelWindow {
         let ids = root._idsOf(entry.idsJson)
         if (ids.indexOf(entry.targetId) < 0)
             ids.push(entry.targetId)
+        root._lastDispatchedTicket = "eng-" + Date.now()
+        // try/finally（v87 审查，与 _activateGroupGuarded 同款防御）：
+        // 旗标卡 true＝activateWithSwap 从此静默 no-op，dock 点击的同步
+        // 收编整链无日志死亡
         root._engagingDispatch = true
-        const ticket = "eng-" + Date.now()
-        root._lastDispatchedTicket = ticket
-        WindowService.engageSwap(ids, entry.targetId, minimizeIds, ticket)
-        root._engagingDispatch = false
+        const ticket = root._lastDispatchedTicket
+        try {
+            WindowService.engageSwap(ids, entry.targetId, minimizeIds, ticket)
+        } finally {
+            root._engagingDispatch = false
+        }
         // kwin 记录已随原子命令收编（NEW-7），仅 foreign 兜底逐条发
         for (let i = 0; i < minimizeIds.length; i++) {
             if (WindowService.windowById(minimizeIds[i])?.provider !== "kwin")
@@ -1953,6 +1970,12 @@ PanelWindow {
             // 防重入（同 desk 放出路径）+ 拖拽全窗遮罩立即收缩（分支
             // 提前 return，等记录落地才收缩＝~200ms 整屏点击死区）
             _updateHitRegionExtent()
+            // 交棒淡出（v87 审查补齐，与 desk 放出/撤销看门狗同款）：
+            // 缺这对标记＝拖拽中心展开后旧卡位残影一闪（v80 病理的
+            // 拖拽入口版——最后载荷 dragging=true 平摆姿态，记录翻转后
+            // 条目直接消失，特效满 alpha 滞留 600ms 再淡出）
+            _markEngagingByIds(ids)
+            root._deskReleaseEngageReset.restart()
             _activateGroupGuarded(ids, focusId)
             return
         }
@@ -2190,6 +2213,7 @@ PanelWindow {
                 required property int count
                 required property string idsJson
                 required property string iconsJson
+                required property string iconIdsJson
                 required property bool merged
                 required property bool enterInstant
 
@@ -2271,6 +2295,7 @@ PanelWindow {
                     count: slot.count
                     idsJson: slot.idsJson
                     iconsJson: slot.iconsJson
+                    iconIdsJson: slot.iconIdsJson
                     merged: slot.merged
                     enterInstant: slot.enterInstant
                     dropHovered: root._dropMergeKey === slot.appKey
@@ -2940,6 +2965,14 @@ PanelWindow {
         } else {
             _thumbRequestPacer.stop()
             root._thumbRequestQueue = []
+            // 关闭时取消在途收编（v87 审查）：_dispatchNextEngage 有
+            // enabled/open 守卫，唯独收编派发链裸奔——用户点桌面后 ~150ms
+            // 内关台前（Meta+Y/控制中心），_captureThenMinTimer 照常触发、
+            // 30ms 后 minimizeGroup 落地＝侧栏已关特效已卸，全部窗口无故
+            // 消失还带默认最小化动画
+            root._cancelPendingDemote()
+            root._deskUndoWatch = null
+            root._deskUndoWatchTimer.stop()
         }
         scheduleLivePublish()
     }

@@ -97,8 +97,10 @@ struct LiveCard
     bool dwellHint = false; // 驻留合并预示（边框蓝）
     QColor tint{13, 18, 31};      // 背板基色（QML rgba(0.05,0.07,0.12,tint)）
     QColor tintHover{26, 33, 51}; // 悬停提亮（×1.3 色族）
-    QColor border{255, 255, 255, 71};
-    qreal hoverScale = 1.18;
+    QColor border{255, 255, 255, 33};
+    // 以下默认值与 reload 解析回落一致（= StageConfigService._schema 的
+    // def，v87 审查收敛：三套默认漂移＝发布端漏字段时静默落到另一套视觉）
+    qreal hoverScale = 1.05;
     qreal hoverTiltDeg = 0;       // 悬停终态倾角（已含右条镜像符号）
     // v52 视觉补全（老 QML 行为迁移）
     bool selfMergeHint = false;
@@ -113,15 +115,18 @@ struct LiveCard
     std::chrono::milliseconds enterMs{240};
     std::chrono::milliseconds animMs{420};
     qreal dragScale = 1.0;
-    qreal cardGlow = 0.5;
-    qreal hoverBlend = 0.0;    // 悬停态混合量（边框蓝/深度淡出/顶光×2/辉光）
+    // hoverBlend 基线（v87 审查）：与 scale/tilt/fanBlend 同款 from→to
+    // 插值——旧实现直接 (hovered?1:0)*cubic，方向翻转/拖拽打断瞬间从
+    // 0.6 单帧硬跳到 0（边框蓝/深度淡出瞬灭）
+    qreal hoverBlend = 0.0;    // 悬停态混合量（边框蓝/深度淡出/顶光×2）
+    qreal hoverBlendFrom = 0.0, hoverBlendTo = 0.0;
     qreal spawnSlide = 0.0;    // 入场 x 侧滑起点（±70）
     qint64 spawnAtMs = 0;      // 入场起表时刻（迸开错峰 +70ms/张）
-    std::chrono::milliseconds hoverMs{240};
-    qreal fanSpacing = 6;
+    std::chrono::milliseconds hoverMs{280};
+    qreal fanSpacing = 8;
     qreal fanHoverSpread = 1.4; // 悬停/武装时扇叠间距扩散系数（可调）
-    qreal depthStrength = 0.22;
-    qreal topLight = 0.10;
+    qreal depthStrength = 0.38;
+    qreal topLight = 0.07;
     // 悬停状态机（特效自驱：cursorPos 命中静止矩形——与 QML 输入区同界；
     // 动画在本进程跑，与内容同管线同时钟 = 像素级同步）
     bool hovered = false;
@@ -209,6 +214,7 @@ private:
     void reloadLiveCards();
     void detachLiveCard(LiveCard &card);
     void releaseLiveCard(LiveCard &card);
+    void updateLiveFrameTimer(); // 帧钟随卡启停（零卡不空转，v87 审查）
     void attachLiveCardSources(LiveCard &card); // refOffscreenRendering + 损伤连接（注册/复活共用）
     void scheduleLiveRenders(); // 重拍预算：每拍最多 2 张（优先卡先、其余最久未拍轮转）
     bool expireAbsentLiveCards(); // 缺席超时踢除：对 m_liveWanted 钟控评估（不依赖发布文件再变）
@@ -241,6 +247,7 @@ private:
     QTimer m_liveStaleTimer;    // 10s 周期 reload 兜底（真正的心跳超时判定在 reload 内按 mtime 25s）
     QTimer m_liveFrameTimer;    // 自驱帧回调投喂（30Hz framePainted）
     std::chrono::milliseconds m_lastLiveAdvance{-1}; // 多输出同帧去重（状态机只推进一次）
+    QDateTime m_lastLiveReadMtime; // 已消费的发布文件 mtime（回执写同目录会自触发 directoryChanged——比对后跳过纯浪费的 reload，v87 审查）
     int m_shaderFails = 0;            // 着色器编译连败计数（退避用，成功清零）
     qint64 m_shaderLastFailMs = 0;    // 最近一次编译失败时刻（steady ms）
     QHash<QString, QSharedPointer<LiveCard>> m_liveCards; // 含 dying 退场卡（统一绘制管线）

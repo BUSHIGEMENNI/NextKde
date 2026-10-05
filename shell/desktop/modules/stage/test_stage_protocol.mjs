@@ -15,11 +15,14 @@ const effect = readFileSync(
     "utf8");
 
 // ── 发布端：publishLiveCards 的 out.push({...}) 对象里的顶层键 ──
-// （先剥行注释再取键——行尾注释不带逗号会把下一键吞进同一段）
-const pushMatch = sidebar.match(/out\.push\(\{([\s\S]*?)\}\)/);
-assert(pushMatch, "publishLiveCards out.push block not found");
-const noComments = pushMatch[1]
-    .split("\n").map(l => l.replace(/\/\/.*$/, "")).join("\n");
+// （先剥行注释再取键——行尾注释不带逗号会把下一键吞进同一段）。
+// matchAll 合并全部块（v87 审查）：旧版非贪婪单块匹配停在第一个 })，
+// 将来在它之前出现任何含 }) 的 out.push 会把后半字段静默截走＝死字段
+// 检测变盲
+const pushBlocks = [...sidebar.matchAll(/out\.push\(\{([\s\S]*?)\}\)/g)];
+assert(pushBlocks.length > 0, "publishLiveCards out.push block not found");
+const noComments = pushBlocks.map(m => m[1])
+    .join("\n").split("\n").map(l => l.replace(/\/\/.*$/, "")).join("\n");
 const published = new Set(["id", ...noComments
     .split(",")
     .map(kv => kv.trim().split(":")[0].trim())

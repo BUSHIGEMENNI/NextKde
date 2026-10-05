@@ -101,6 +101,16 @@ check("requireMinimized: only minimized windows",
     ["m1"]);
 check("requireMinimized: off keeps old behavior",
     groupRecords(minWins, {}).map(g => g.key), ["a", "b", "c"]);
+// ── requireNotMinimized（v87："桌面可见窗"口径单一出处）──
+check("requireNotMinimized: only non-minimized windows",
+    groupRecords(minWins, { requireNotMinimized: true })
+        .map(g => g.wins.map(w => w.windowId).join(",")),
+    ["v1", "u1"]);
+// ── pickRepresentative 空入参守卫（v87：导出 API 不再抛 TypeError）──
+check("pickRepresentative: empty wins returns null",
+    pickRepresentative([], () => ""), null);
+check("pickRepresentative: undefined wins returns null",
+    pickRepresentative(undefined, () => ""), null);
 // 生产组合锚（v82）：sideGroups 实际以 requireMinimized+excludeKey+
 // excludeKeepMinimized 组合调用——活动组的**最小化兄弟**必须仍成卡
 //（侧栏是最小化窗的家），改检查顺序不应悄悄破坏
@@ -248,7 +258,7 @@ check("commit: rapid alternation — both due, sequential commits",
 // ── 模型对账 ──
 check("CARD_FIELDS shape", CARD_FIELDS,
     ["targetId", "pid", "appName", "title", "iconSource", "count",
-     "idsJson", "iconsJson", "merged"]);
+     "idsJson", "iconsJson", "iconIdsJson", "merged"]);
 
 function row(appKey, over = {}) {
     return Object.assign({ appKey, targetId: "t-" + appKey, pid: 1,
@@ -308,7 +318,7 @@ check("buildModelRows: fields + dedup",
     ]),
     [{ appKey: "a", targetId: "t1", pid: 5, appName: "A", title: "x",
         iconSource: "i", count: 2, idsJson: '["t1","t2"]',
-        iconsJson: '[]', merged: false }]);
+        iconsJson: '[]', iconIdsJson: '[]', merged: false }]);
 
 // moveOrderKey：拖拽换位
 check("move 前移尾→头", moveOrderKey(["a", "b", "c"], "c", 0), ["c", "a", "b"]);
@@ -361,6 +371,11 @@ check("move 键缺失原样", moveOrderKey(["a", "b"], "z", 0), ["a", "b"]);
     // 图标是用户实测困惑点；窗口总数由标题 ×N 表达
     check("row icons deduped per app", JSON.parse(rows[0].iconsJson),
         ["icon-a", "icon-b"]);
+    // iconIds 与 icons 索引对齐＝该图标点击直达的首窗（v87：重复图标
+    // 按位 zip 全量 ids 会错位激活同应用兄弟窗）。fixture 组内序 =
+    // [w1(icon-a), w2(icon-b), w3(icon-a)]，去重后 icon-a→w1、icon-b→w2
+    check("row iconIds first window per icon",
+        JSON.parse(rows[0].iconIdsJson), ["w1", "w2"]);
 
     // 拆散：组内覆盖全部清除
     ov = splitGroup(ov, recs, "b");

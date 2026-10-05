@@ -7,7 +7,7 @@
 // ListModel 角色 / delegate required property 的唯一出处（appKey 是主键，
 // 不进差异比较）。新增卡片字段：加这里 + buildModelRows + 两处 required。
 export const CARD_FIELDS = ["targetId", "pid", "appName", "title",
-    "iconSource", "count", "idsJson", "iconsJson", "merged"]
+    "iconSource", "count", "idsJson", "iconsJson", "iconIdsJson", "merged"]
 
 // ── 分组 ──
 
@@ -57,6 +57,8 @@ export function isSameApp(a, b, appIdA, appIdB) {
 //                       autoMinimize 兜底收走——还原中/收集延迟期的
 //                       "可见未聚焦"窗口会闪出（甚至驻留）鬼卡：QML 侧
 //                       画它、发布流却正确排除＝两侧口径分裂的闪烁根源。
+//   opts.requireNotMinimized — 只收未最小化窗口（"桌面可见窗"口径的
+//                       单一出处；与 requireMinimized 互补）。
 export function groupRecords(records, opts = {}) {
     const groups = []
     const byKey = ({})
@@ -67,6 +69,8 @@ export function groupRecords(records, opts = {}) {
         // minimizedWhitelist：在途收编批次（即将最小化）的窗口例外——
         // 发布侧预测布局需要它们的槽位矩形（飞行目标），否则收编预发布
         // 失效、窗口飞向陈旧槽位
+        if (opts.requireNotMinimized && r.toplevel?.minimized === true)
+            continue
         if (opts.requireMinimized && r.toplevel?.minimized !== true
                 && !opts.minimizedWhitelist?.[r.windowId])
             continue
@@ -108,6 +112,8 @@ export function groupRecords(records, opts = {}) {
 // 图的（历史上截过图的那扇——组内兄弟窗口各存各的图，选错窗口卡片就只剩
 // 占位符）；都没有则最后一个（激活时解锁）。thumbnailUrlOf 由调用方注入。
 export function pickRepresentative(wins, thumbnailUrlOf) {
+    if (!wins || wins.length === 0)
+        return null // 导出 API 的空入参守卫：调用方（decorateGroups）跳过
     for (let i = 0; i < wins.length; i++)
         if (!wins[i].toplevel?.minimized)
             return wins[i]
@@ -122,6 +128,8 @@ export function decorateGroups(groups, thumbnailUrlOf) {
     for (let g = 0; g < groups.length; g++) {
         const grp = groups[g]
         const rep = pickRepresentative(grp.wins, thumbnailUrlOf)
+        if (!rep)
+            continue
         grp.targetId = rep.windowId
         grp.appName = rep.identity?.name || rep.title || grp.key
         grp.title = rep.title || ""
@@ -129,15 +137,19 @@ export function decorateGroups(groups, thumbnailUrlOf) {
         grp.count = grp.wins.length
         grp.ids = grp.wins.map(w => w.windowId)
         // 图标排按图标源去重：同应用多窗只留一枚（重复 N 个相同图标是
-        // 用户实测困惑点；窗口总数由标题 ×N 表达）。顺序保持首现序
+        // 用户实测困惑点；窗口总数由标题 ×N 表达）。顺序保持首现序；
+        // iconIds 与 icons 索引对齐＝该图标点击直达的首窗 id——消费端
+        // 严禁再拿全量 ids 按位 zip（重复图标会错位激活同应用兄弟窗）
         const seen = new Set()
         grp.icons = []
+        grp.iconIds = []
         for (const w of grp.wins) {
             const src = w.iconSource || ""
             if (seen.has(src))
                 continue
             seen.add(src)
             grp.icons.push(src)
+            grp.iconIds.push(w.windowId)
         }
     }
     return groups
@@ -270,6 +282,7 @@ export function buildModelRows(groups) {
             count: g.count || 1,
             idsJson: JSON.stringify(g.ids || []),
             iconsJson: JSON.stringify(g.icons || []),
+            iconIdsJson: JSON.stringify(g.iconIds || []),
             merged: !!g.merged,
         })
     }
