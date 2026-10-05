@@ -130,22 +130,32 @@ export function scrollLayout(availH, count, opts = {}) {
         return { positions, scales, zs, dims, scale: 1,
             pitch: ch + spacing, scrollMax: 0 }
     availH = _finiteAvailH(availH, count, ch, spacing)
-    // 基础槽位（未滚动）：固定间距；放得下整块居中，放不下顶锚+滚动。
-    // ⚠️ 滚动模式不做缩放全显（用户实测否决）：整列等比缩小会让
-    // 卡片高度/宽度旋钮失灵（视觉尺寸被 scale 饱和，调大卡不变）——
-    // "全部完整显示、随数量等比缩小"是 adaptive 模式的专属语义（设置
-    // 页"自适应缩小"），两种模式各司其职
+    // 基础槽位（未滚动）：固定间距。**时刻居中**（用户定稿）：
+    // - 放得下 → 整块居中
+    // - 放不下 → 可视窗口内的完整卡块垂直居中（上下对称净空，无半截
+    //   peek 残影、无缩放＝卡高/卡宽旋钮照常 1:1 生效），多出的卡藏在
+    //   折叠线下方滚动翻看；滚到 pitch 整数倍时窗口保持同款居中几何。
+    //   ⚠️ 不做缩放全显（用户实测否决）：整列等比缩小会让尺寸旋钮
+    //   失灵（视觉被 scale 饱和）；"全部完整显示、随数量等比缩小"是
+    //   adaptive 模式的专属语义（设置页"自适应缩小"）
     const pitch = ch + spacing
     const contentH = (count - 1) * pitch + ch
     const fits = contentH <= availH
-    // centerCards（v88 审计）：放得下时是否整块居中——False＝顶锚。
-    // 旧版只有 adaptive 尊重此开关，scroll 模式恒居中＝死键
+    // centerCards（v88 审计）：False＝退顶锚（两分支都尊重）
     const center = opts.centerCards !== false
-    const top0 = fits && center ? (availH - contentH) / 2 : 0
+    let top0
+    if (fits) {
+        top0 = center ? (availH - contentH) / 2 : 0
+    } else {
+        // 可视完整卡数 k：块高 k·ch+(k−1)·sp ≤ availH，块居中
+        const k = Math.max(1, Math.floor((availH + spacing) / pitch))
+        const block = k * ch + (k - 1) * spacing
+        top0 = center ? Math.max(0, (availH - block) / 2) : 0
+    }
     const baseY = i => top0 + i * pitch
     // 滚动上限：滚到底末卡完整露出（+GLOW_PAD 辉光余量）
     const scrollMax = fits ? 0
-        : Math.max(0, contentH + GLOW_PAD - availH)
+        : Math.max(0, top0 + contentH - availH + GLOW_PAD)
     if (h < 0 || count === 1) {
         for (let i = 0; i < count; i++) {
             positions.push(baseY(i) - scroll)

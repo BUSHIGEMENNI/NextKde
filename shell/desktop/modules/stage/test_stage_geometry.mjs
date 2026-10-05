@@ -73,22 +73,32 @@ check("scroll: centerCards=false top anchors",
 lay = scrollLayout(1000, 2, { spacing: 16, centerCards: true });
 check("scroll: centerCards=true centers",
     lay.positions.map(p => Math.round(p)), [344, 508]);
-// ② 溢出：全尺寸 + 顶锚 + 滚动（用户否决缩放全显＝尺寸旋钮失灵；
-// "全部完整显示、随数量等比缩小"是 adaptive 模式的专属语义）
+// ② 溢出：完整卡块居中窗口（用户定稿"时刻居中"）：8 张 avail 1000、
+// pitch 164 → k=6 完整卡（块 968）、top0=(1000−968)/2=16 上下对称净空；
+// 多出的卡藏折叠线下，滚动翻看；尺寸旋钮 1:1 生效（无缩放）
 lay = scrollLayout(1000, 8, { spacing: 16 });
 check("scroll: overflow keeps full size", lay.scale, 1);
-check("scroll: overflow top anchored", lay.positions[0], 0);
-check("scroll: scrollMax = content + glowPad - avail",
-    lay.scrollMax, 7 * 164 + 148 + 22 - 1000);
+check("scroll: visible block centered (top0 = pad/2)",
+    lay.positions[0], 16);
+check("scroll: centered block is k complete cards",
+    Math.round(lay.positions[5] + 148), 984);
+check("scroll: 7th card hidden below fold",
+    Math.round(lay.positions[6]), 16 + 6 * 164);
+check("scroll: scrollMax centers last window",
+    lay.scrollMax, 16 + 7 * 164 + 148 - 1000 + 22);
 const atMax = scrollLayout(1000, 8,
     { spacing: 16, scroll: lay.scrollMax });
 check("scroll: at max scroll last card bottom = avail - glowPad",
     Math.round(atMax.positions[7] + 148), 1000 - 22);
+// centerCards=false：溢出时退顶锚（开关两分支都活）
+lay = scrollLayout(1000, 8, { spacing: 16, centerCards: false });
+check("scroll: overflow centerCards=false top anchors",
+    lay.positions[0], 0);
 // 滚动偏移：positions 整体 −scroll
 lay = scrollLayout(1000, 8, { spacing: 16, scroll: 300 });
-check("scroll: offset applied", lay.positions[0], -300);
+check("scroll: offset applied", lay.positions[0], 16 - 300);
 check("scroll: offset uniform", Math.round(lay.positions[7]),
-    7 * 164 - 300);
+    16 + 7 * 164 - 300);
 // ③ 聚焦原位退避（avail 1000, n=5, sp 16 → pitch 164，content 804，
 // top0=98，基础 [98,262,426,590,754]，retreat 默认 20）
 lay = scrollLayout(1000, 5, { spacing: 16, hoveredIndex: 2 });
