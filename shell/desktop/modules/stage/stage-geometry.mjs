@@ -164,10 +164,12 @@ export function scrollLayout(availH, count, opts = {}) {
     }
     // 聚焦缩放 ≥ 基础缩放（TopLeft 外扩不变量）：聚焦比基础小会让悬停
     // 卡向内收缩、把指针从卡缘挤出（悬停丢失→回弹→驻留→再聚焦的慢振
-    // 荡）。聚焦只许放大或等大；基础被列缩放压小时，悬停卡弹回 1.0
-    // 全尺寸（"点这张"的视觉强调，与未溢出时的行为衔接）
+    // 荡）。**相对基础缩放**（用户实测否决"弹回全尺寸"版：hoverScale
+    // 本就关闭悬停放大的配置下，0.76→1.0 的强弹＝"反转后突然放大"的
+    // 突兀感来源）——默认 1.0×base＝悬停不改尺寸，配置放大也按比例
     const focusScale = Math.max(
-        Number.isFinite(opts.focusScale) ? opts.focusScale : 1.0, scale)
+        (Number.isFinite(opts.focusScale) ? opts.focusScale : 1.0) * scale,
+        scale)
     const retreat = Number.isFinite(opts.retreat)
         ? opts.retreat : SCROLL_RETREAT
     // 悬停卡锚定当前视觉位置（hoverY）；缺省回退滚动后的基础槽位
