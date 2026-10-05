@@ -691,6 +691,9 @@ PanelWindow {
         const now = Date.now()
         if (now - root._lastDeskToggleAt < _deskToggleDebounceMs)
             return
+        // 本次点击之前的上一击时刻（_lastDeskToggleAt 马上要被覆盖）——
+        // 遗孤复活的"近期开关"判据用
+        const prevToggleAt = root._lastDeskToggleAt
         root._lastDeskToggleAt = now
         if (deskCollectedIds.length > 0) {
             const ids = deskCollectedIds
@@ -720,12 +723,14 @@ PanelWindow {
             return
         }
         if (!_collectDesktopToStrip(true)) {
-            // 死角兜底（审计 🔴）：一条都没得收、开关态也没武装，但桌面
-            // 语义上"已经全在卡里"（undo 看门狗窗口外迟到落地/被击杀后
-            // 的遗孤最小化集）——把这次点击读作 toggle 的另一半"放出
-            // 来"，否则无 targets 的点击永久无效。武装开关集：再点一次
-            // 回到正常开关语义。
-            const revived = _desktopWindowIds(true)
+            // 死角兜底（审计 🔴）：只在**近期发生过桌面开关**（默认 15s
+            // 内有上一击）时才把这次点击读作 toggle 的另一半"放出来"——
+            // 它救的是被打断的收编管线（开关集丢失但窗已收，用户几秒内
+            // 补一击放出）。稳态下桌面本来就没东西（用户关掉了最后一个
+            // 桌面应用）点桌面必须是 no-op：全量翻出所有卡不是这个点击
+            // 的语义（用户定稿"桌面啥也没有点也没啥"）
+            const recentToggle = now - prevToggleAt < 15000
+            const revived = recentToggle ? _desktopWindowIds(true) : []
             if (revived.length > 0) {
                 deskCollectedIds = revived
                 deskCollectedFocusId = root.stageActiveId || revived[0]
