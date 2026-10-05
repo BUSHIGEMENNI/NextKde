@@ -65,20 +65,24 @@ check("scroll: few cards keep natural spacing",
     Math.round(lay.positions[1] - lay.positions[0]), 164);
 check("scroll: two cards centered as block",
     lay.positions.map(p => Math.round(p)), [344, 508]);
-// ② 溢出：顶锚 + 滚动上限（8 张 content = 7·164+148 = 1296 > 1000）
+// ② 溢出：居中锚 + 滚动上限（8 张 content = 7·164+148 = 1296 > 1000，
+// 溢出 296 → 静息 top0 = −148：首末卡各探出半截＝列视觉居中）
 lay = scrollLayout(1000, 8, { spacing: 16 });
-check("scroll: overflow top anchored", lay.positions[0], 0);
-check("scroll: scrollMax = content + glowPad - avail",
-    lay.scrollMax, 7 * 164 + 148 + 22 - 1000);
+check("scroll: overflow centered rest (top0 = -overflow/2)",
+    lay.positions[0], -148);
+check("scroll: overflow rest last card peeks below fold",
+    Math.round(lay.positions[7] + 148), 1148);
+check("scroll: scrollMax = overflow/2 + glowPad",
+    lay.scrollMax, 148 + 22);
 const atMax = scrollLayout(1000, 8,
     { spacing: 16, scroll: lay.scrollMax });
 check("scroll: at max scroll last card bottom = avail - glowPad",
     Math.round(atMax.positions[7] + 148), 1000 - 22);
 // 滚动偏移：positions 整体 −scroll
 lay = scrollLayout(1000, 8, { spacing: 16, scroll: 300 });
-check("scroll: offset applied", lay.positions[0], -300);
+check("scroll: offset applied", lay.positions[0], -148 - 300);
 check("scroll: offset uniform", Math.round(lay.positions[7]),
-    7 * 164 - 300);
+    -148 + 7 * 164 - 300);
 // ③ 聚焦原位退避（avail 1000, n=5, sp 16 → pitch 164，content 804，
 // top0=98，基础 [98,262,426,590,754]，retreat 默认 20）
 lay = scrollLayout(1000, 5, { spacing: 16, hoveredIndex: 2 });

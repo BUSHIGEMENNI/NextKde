@@ -130,15 +130,19 @@ export function scrollLayout(availH, count, opts = {}) {
         return { positions, scales, zs, dims, scale: 1,
             pitch: ch + spacing, scrollMax: 0 }
     availH = _finiteAvailH(availH, count, ch, spacing)
-    // 基础槽位（未滚动）：固定间距；放得下整块居中，放不下顶锚
+    // 基础槽位（未滚动）：固定间距；放得下整块居中；放不下也尽量居中
+    //（居中溢出，用户定稿）：静息位把溢出量对称分到上下两端——首末卡
+    // 各探出半截（经 edgeFade 渐隐），列整体视觉居中而不是顶层锚的
+    // "上顶下埋"偏沉；滚到头才贴边（末卡完整露出 + GLOW_PAD 辉光余量）
     const pitch = ch + spacing
     const contentH = (count - 1) * pitch + ch
     const fits = contentH <= availH
-    const top0 = fits ? (availH - contentH) / 2 : 0
+    const top0 = fits ? (availH - contentH) / 2 : -(contentH - availH) / 2
     const baseY = i => top0 + i * pitch
-    // 滚动上限：滚到底末卡完整露出（+GLOW_PAD 辉光余量）
+    // 滚动上限：滚到底末卡完整露出（+GLOW_PAD 辉光余量）。
+    // 静息位（scroll=0）即居中位——scrollMax 抵掉 top0 的下移量
     const scrollMax = fits ? 0
-        : Math.max(0, contentH + GLOW_PAD - availH)
+        : Math.max(0, contentH + GLOW_PAD - availH - (contentH - availH) / 2)
     if (h < 0 || count === 1) {
         for (let i = 0; i < count; i++) {
             positions.push(baseY(i) - scroll)
