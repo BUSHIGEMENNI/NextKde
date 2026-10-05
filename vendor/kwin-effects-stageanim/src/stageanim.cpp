@@ -986,6 +986,8 @@ struct CardMeta
     bool enterInstant = false;  // 收编落卡（淡入=飞行时长 420ms）
     bool chipHot = false;       // 拆分芯片点亮（isHovered||mergeGlow）
     QString iconsJson;          // 组内窗口图标排（file:/icon: URL 数组）
+    qreal iconSize = 40;   // 图标排图标边长（payload，v88：原硬编码 24）
+    int iconSlots = 4;     // 图标排并列上限（payload，v88：原仅按宽度封顶）
     qreal engagingTilt = 0;     // 交棒保持倾角（adaptive=tiltAngle 非 0）
     std::chrono::milliseconds tiltMs{250};
     std::chrono::milliseconds enterMs{240};
@@ -1027,6 +1029,8 @@ static void applyCardMeta(LiveCard &card, const CardMeta &m)
     card.showCardTitle = m.showCardTitle;
     card.chipHot = m.chipHot;
     card.iconsJson = m.iconsJson;
+    card.iconSize = m.iconSize;
+    card.iconSlots = m.iconSlots;
     card.engagingTilt = m.engagingTilt;
     card.tiltMs = m.tiltMs;
     card.enterMs = m.enterMs;
@@ -1054,7 +1058,9 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
         + QString::number(card.count) + QLatin1Char('|')
         + QString::number(w) + QLatin1Char('x') + QString::number(h)
         + QLatin1Char(card.merged ? (card.chipHot ? 'C' : 'N') : 'c')
-        + QLatin1Char(card.rightSide ? 'R' : 'l');
+        + QLatin1Char(card.rightSide ? 'R' : 'l')
+        + QStringLiteral("|i%1n%2").arg(qRound(card.iconSize))
+            .arg(card.iconSlots);
     const bool chromeDirty = key != card.chromeKey || !card.chromeTex;
     const bool overlayDirty = ovKey != card.overlayKey || !card.overlayTex;
     if (!chromeDirty && !overlayDirty)
@@ -1152,8 +1158,12 @@ void StageAnimEffect::rasterChrome(LiveCard &card)
                 seenIcons.insert(icons.at(i));
         }
     }
-    const int isz = 24 * 2, igap = std::max(6, isz / 5);
-    const int maxFit = std::max(1, (w * 2 + igap) / (isz + igap));
+    // 图标排参数经载荷（v88）：尺寸＝stripIconSize 旋钮（原硬编码 24，
+    // 与静态模式 40px 不一致），并列上限＝maxIconSlots 旋钮与卡宽取小
+    const int isz = std::max(12, qRound(card.iconSize)) * 2,
+              igap = std::max(6, isz / 5);
+    const int maxFit = std::max(1, std::min(card.iconSlots,
+        (w * 2 + igap) / (isz + igap)));
     const int visible = int(std::min<qsizetype>(icons.size(), maxFit));
     int rowW = visible > 0 ? visible * isz + (visible - 1) * igap : 0;
     const bool overflow = icons.size() > visible;
@@ -1282,6 +1292,10 @@ void StageAnimEffect::reloadLiveCards()
                 meta.enterInstant = o.value(QStringLiteral("enterInstant")).toBool();
                 meta.chipHot = o.value(QStringLiteral("chipHot")).toBool();
                 meta.iconsJson = o.value(QStringLiteral("iconsJson")).toString();
+                meta.iconSize = qBound(12.0,
+                    o.value(QStringLiteral("iconSize")).toDouble(40.0), 96.0);
+                meta.iconSlots = std::max(1,
+                    o.value(QStringLiteral("iconSlots")).toInt(4));
                 meta.engagingTilt = o.value(QStringLiteral("engagingTilt")).toDouble();
                 meta.tiltMs = std::chrono::milliseconds(
                     std::max(80, o.value(QStringLiteral("tiltMs")).toInt(250)));

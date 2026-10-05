@@ -138,7 +138,10 @@ export function scrollLayout(availH, count, opts = {}) {
     const pitch = ch + spacing
     const contentH = (count - 1) * pitch + ch
     const fits = contentH <= availH
-    const top0 = fits ? (availH - contentH) / 2 : 0
+    // centerCards（v88 审计）：放得下时是否整块居中——False＝顶锚。
+    // 旧版只有 adaptive 尊重此开关，scroll 模式恒居中＝死键
+    const center = opts.centerCards !== false
+    const top0 = fits && center ? (availH - contentH) / 2 : 0
     const baseY = i => top0 + i * pitch
     // 滚动上限：滚到底末卡完整露出（+GLOW_PAD 辉光余量）
     const scrollMax = fits ? 0

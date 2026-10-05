@@ -247,6 +247,11 @@ Item {
             selfMergeHint: card.selfMergeHint,
             chipHot: card.isHovered || card.mergeGlow,
             iconsJson: card.iconsJson,
+            // 图标排消费参数（v88：特效侧原本硬编码 24px+仅宽度封顶＝
+            // stripIconSize/maxIconSlots 两个旋钮在实时模式失灵，且与
+            // 静态模式 40px 视觉不一致）
+            iconSize: StageConfigService.stripIconSize,
+            iconSlots: card.maxIconSlots,
         }
     }
     // x 入列方向镜像：左侧从右滑入（+70），右侧从左滑入（−70）——都从

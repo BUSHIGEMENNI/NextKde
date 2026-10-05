@@ -1450,7 +1450,10 @@ ApplicationWindow {
                 }
 
                 StageSliderRow {
-                    label: "聚焦辉光强度"
+                    // 辉光是静态快照的扇叠背板效果（实时直绘模式无辉光
+                    // pass，v57 撤）——实时模式下隐藏防"拖了没反应"
+                    visible: fgSchedPage.stageSnapshot.thumbLiveEffect !== true
+                    label: "聚焦辉光强度（静态模式）"
                     unit: ""
                     minV: 0
                     maxV: 0.4

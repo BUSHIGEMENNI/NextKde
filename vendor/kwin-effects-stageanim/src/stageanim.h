@@ -110,6 +110,8 @@ struct LiveCard
     bool enterInstant = false;
     bool chipHot = false;
     QString iconsJson;
+    qreal iconSize = 40;   // 图标排图标边长（payload，v88：原硬编码 24）
+    int iconSlots = 4;     // 图标排并列上限（payload，v88：原仅按宽度封顶）
     qreal engagingTilt = 0;
     std::chrono::milliseconds tiltMs{250};
     std::chrono::milliseconds enterMs{240};

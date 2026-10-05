@@ -1067,6 +1067,7 @@ PanelWindow {
                     merged: p.merged, showCardTitle: p.showCardTitle,
                     enterInstant: p.enterInstant, dragScale: p.dragScale,
                     chipHot: p.chipHot, iconsJson: p.iconsJson,
+                    iconSize: p.iconSize, iconSlots: p.iconSlots,
                     engagingTilt: p.engagingTilt, tiltMs: p.tiltMs,
                     enterMs: p.enterMs, animMs: p.animMs,
                     engaging: engaging,
@@ -1576,6 +1577,7 @@ PanelWindow {
             cardHeight: StageConfigService.cardHeight,
             spacing: StageConfigService.cardSpacing,
             scroll: root.scrollOffset,
+            centerCards: StageConfigService.centerCards,
         }
         return extra ? Object.assign(o, extra) : o
     }
@@ -2798,6 +2800,7 @@ PanelWindow {
                 cardHeight: StageConfigService.cardHeight,
                 spacing: StageConfigService.cardSpacing,
                 scroll: root.scrollOffset,
+                centerCards: StageConfigService.centerCards,
                 retreat: StageConfigService.deckSidePeek,
                 hoveredIndex: root.dragKey !== "" ? -1 : h,
                 // 锚定**视觉**位置（mapToItem 含在途动画），不是属性 y——

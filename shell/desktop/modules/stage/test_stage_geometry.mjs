@@ -65,6 +65,14 @@ check("scroll: few cards keep natural spacing",
     Math.round(lay.positions[1] - lay.positions[0]), 164);
 check("scroll: two cards centered as block",
     lay.positions.map(p => Math.round(p)), [344, 508]);
+// centerCards=false（v88 审计）：放得下时顶锚不居中（旧版死键——
+// 只有 adaptive 尊重此开关）
+lay = scrollLayout(1000, 2, { spacing: 16, centerCards: false });
+check("scroll: centerCards=false top anchors",
+    lay.positions.map(p => Math.round(p)), [0, 164]);
+lay = scrollLayout(1000, 2, { spacing: 16, centerCards: true });
+check("scroll: centerCards=true centers",
+    lay.positions.map(p => Math.round(p)), [344, 508]);
 // ② 溢出：全尺寸 + 顶锚 + 滚动（用户否决缩放全显＝尺寸旋钮失灵；
 // "全部完整显示、随数量等比缩小"是 adaptive 模式的专属语义）
 lay = scrollLayout(1000, 8, { spacing: 16 });
