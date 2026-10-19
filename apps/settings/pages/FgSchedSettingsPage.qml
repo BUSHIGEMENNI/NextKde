@@ -33,18 +33,18 @@ ColumnLayout {
           values: { cardHeight: 145, tiltAngle: 16,
                     deckRestTilt: 16, hoverScale: 1.0,
                     cardEnterDuration: 190, tiltAnimDuration: 220,
-                    animDuration: 340, cardGlow: 0.08, cardDepth: 0.28 } },
+                    animDuration: 340, cardGlow: 0.08 } },
         { id: "standard", name: I18n.tr("Standard"), detail: I18n.tr("Medium cards · moderate tilt · balanced motion"),
           values: { cardHeight: 170, tiltAngle: 28,
                     deckRestTilt: 28, hoverScale: 1.0,
                     cardEnterDuration: 240, tiltAnimDuration: 280,
-                    animDuration: 400, cardGlow: 0.14, cardDepth: 0.40 } },
+                    animDuration: 400, cardGlow: 0.14 } },
         // 「立体」= 用户 2026-09-30 定稿手感（204/28/40×2，悬停放大关）
         { id: "vivid", name: I18n.tr("Dimensional"), detail: I18n.tr("Large cards · strong tilt · relaxed motion"),
           values: { cardHeight: 204, tiltAngle: 40,
                     deckRestTilt: 40, hoverScale: 1.0,
                     cardEnterDuration: 280, tiltAnimDuration: 340,
-                    animDuration: 430, cardGlow: 0.20, cardDepth: 0.50 } },
+                    animDuration: 430, cardGlow: 0.20 } },
     ]
 
     // 预设命中 = 全部键与当前快照一致（拖过主参数/高级项即脱离高亮）
@@ -273,7 +273,7 @@ ColumnLayout {
                 minV: 100
                 maxV: 220
                 current: fgSchedPage.stageSnapshot.cardHeight !== undefined
-                    ? fgSchedPage.stageSnapshot.cardHeight : 148
+                    ? fgSchedPage.stageSnapshot.cardHeight : 170
                 onCommit: function(v) { fgSchedPage.stageSet("cardHeight", v)
             }
             }
@@ -286,7 +286,7 @@ ColumnLayout {
                 maxV: 320
                 active: true
                 current: fgSchedPage.stageSnapshot.cardWidth !== undefined
-                    ? fgSchedPage.stageSnapshot.cardWidth : 216
+                    ? fgSchedPage.stageSnapshot.cardWidth : 128
                 onCommit: function(v) { fgSchedPage.stageSet("cardWidth", v)
             }
             }
@@ -303,9 +303,9 @@ ColumnLayout {
                 // 减半"。写两键同值（用户手感即两键同档，不分静置/悬停）
                 current: fgSchedPage.stageSnapshot.layoutMode === "adaptive"
                     ? (fgSchedPage.stageSnapshot.tiltAngle !== undefined
-                        ? fgSchedPage.stageSnapshot.tiltAngle : 22)
+                        ? fgSchedPage.stageSnapshot.tiltAngle : 0)
                     : (fgSchedPage.stageSnapshot.deckRestTilt !== undefined
-                        ? fgSchedPage.stageSnapshot.deckRestTilt : 10)
+                        ? fgSchedPage.stageSnapshot.deckRestTilt : 40)
                 onCommit: function(v) {
                     fgSchedPage.stageSet("tiltAngle", v)
                     fgSchedPage.stageSet("deckRestTilt", v)
@@ -323,16 +323,16 @@ ColumnLayout {
                 // 保留用户调过的三个时长配比；锚点 240 只是显示基准。
                 // 三个目标值先从同一份快照取齐再写，防逐键回读互相污染
                 current: (fgSchedPage.stageSnapshot.cardEnterDuration !== undefined
-                    ? fgSchedPage.stageSnapshot.cardEnterDuration : 240) / 240
+                    ? fgSchedPage.stageSnapshot.cardEnterDuration : 200) / 240
                 onCommit: function(v) {
                     const s = fgSchedPage.stageSnapshot
                     const enter = s.cardEnterDuration !== undefined
-                        ? s.cardEnterDuration : 240
+                        ? s.cardEnterDuration : 200
                     const tilt = s.tiltAnimDuration !== undefined
-                        ? s.tiltAnimDuration : 250
+                        ? s.tiltAnimDuration : 200
                     const win = s.animDuration !== undefined
-                        ? s.animDuration : 420
-                    const f = enter > 0 ? v / (enter / 240) : 1
+                        ? s.animDuration : 320
+                    const f = enter > 0 ? v / (enter / 200) : 1
                     fgSchedPage.stageSet("cardEnterDuration",
                         Math.round(enter * f))
                     fgSchedPage.stageSet("tiltAnimDuration",
@@ -391,9 +391,8 @@ ColumnLayout {
                 minV: 0
                 maxV: 40
                 decimals: 1
-                active: fgSchedPage.stageSnapshot.layoutMode === "adaptive"
                 current: fgSchedPage.stageSnapshot.tiltAngle !== undefined
-                    ? fgSchedPage.stageSnapshot.tiltAngle : 22
+                    ? fgSchedPage.stageSnapshot.tiltAngle : 0
                 onCommit: function(v) { fgSchedPage.stageSet("tiltAngle", v)
             }
             }
@@ -401,12 +400,13 @@ ColumnLayout {
             Controls.StageSliderRow {
                 colors: fgSchedPage.colors
                 label: I18n.tr("Card spacing")
-                unit: " px"
-                minV: 4
-                maxV: 48
-                current: fgSchedPage.stageSnapshot.cardSpacing !== undefined
-                    ? fgSchedPage.stageSnapshot.cardSpacing : 16
-                onCommit: function(v) { fgSchedPage.stageSet("cardSpacing", v)
+                unit: " %"
+                minV: 1
+                maxV: 10
+                decimals: 1
+                current: fgSchedPage.stageSnapshot.cardGapPercent !== undefined
+                    ? fgSchedPage.stageSnapshot.cardGapPercent : 4.5
+                onCommit: function(v) { fgSchedPage.stageSet("cardGapPercent", v)
             }
             }
 
@@ -417,7 +417,7 @@ ColumnLayout {
                 minV: 100
                 maxV: 220
                 current: fgSchedPage.stageSnapshot.cardHeight !== undefined
-                    ? fgSchedPage.stageSnapshot.cardHeight : 148
+                    ? fgSchedPage.stageSnapshot.cardHeight : 170
                 onCommit: function(v) { fgSchedPage.stageSet("cardHeight", v)
             }
             }
@@ -466,7 +466,7 @@ ColumnLayout {
                 minV: 100
                 maxV: 800
                 current: fgSchedPage.stageSnapshot.cardEnterDuration !== undefined
-                    ? fgSchedPage.stageSnapshot.cardEnterDuration : 240
+                    ? fgSchedPage.stageSnapshot.cardEnterDuration : 200
                 onCommit: function(v) { fgSchedPage.stageSet("cardEnterDuration", v)
             }
             }
@@ -478,7 +478,7 @@ ColumnLayout {
                 minV: 100
                 maxV: 800
                 current: fgSchedPage.stageSnapshot.tiltAnimDuration !== undefined
-                    ? fgSchedPage.stageSnapshot.tiltAnimDuration : 250
+                    ? fgSchedPage.stageSnapshot.tiltAnimDuration : 200
                 onCommit: function(v) { fgSchedPage.stageSet("tiltAnimDuration", v)
             }
             }
@@ -670,10 +670,10 @@ ColumnLayout {
                 label: I18n.tr("Bottom-left icon size")
                 unit: " px"
                 minV: 16
-                maxV: 40
+                maxV: 80
                 active: true
                 current: fgSchedPage.stageSnapshot.stripIconSize !== undefined
-                    ? fgSchedPage.stageSnapshot.stripIconSize : 24
+                    ? fgSchedPage.stageSnapshot.stripIconSize : 46
                 onCommit: function(v) { fgSchedPage.stageSet("stripIconSize", v)
             }
             }
@@ -686,7 +686,7 @@ ColumnLayout {
                 maxV: 8
                 active: true
                 current: fgSchedPage.stageSnapshot.maxIconSlots !== undefined
-                    ? fgSchedPage.stageSnapshot.maxIconSlots : 5
+                    ? fgSchedPage.stageSnapshot.maxIconSlots : 4
                 onCommit: function(v) { fgSchedPage.stageSet("maxIconSlots", v)
             }
             }
@@ -726,7 +726,7 @@ ColumnLayout {
                 }
 
                 LiquidControls.LiquidGlassSwitch {
-                    checked: fgSchedPage.stageSnapshot.showCardTitle !== false
+                    checked: fgSchedPage.stageSnapshot.showCardTitle === true
                     accentColor: colors.accent
                     trackColor: colors.divider
                     onToggled: function(checked) {
@@ -742,9 +742,8 @@ ColumnLayout {
                 minV: 0
                 maxV: 40
                 decimals: 1
-                active: fgSchedPage.stageSnapshot.layoutMode === "scroll"
                 current: fgSchedPage.stageSnapshot.deckRestTilt !== undefined
-                    ? fgSchedPage.stageSnapshot.deckRestTilt : 10
+                    ? fgSchedPage.stageSnapshot.deckRestTilt : 40
                 onCommit: function(v) { fgSchedPage.stageSet("deckRestTilt", v)
             }
             }

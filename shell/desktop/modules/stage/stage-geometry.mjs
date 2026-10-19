@@ -10,8 +10,6 @@ export const PANEL_WIDTH = 240
 // 这么多（悬停放大 + 辉光 + 倾斜投影的溢出，见旧注释）。全屏浮层化后
 // 窗口恒全屏、该职责消失——卡片列贴缘偏移改由 stripMargin（配置项，
 // 设置页「距离屏幕边缘」可调）承担，默认 32 = 本值 + CARD_X_INSET。
-// 全代码不再消费本常量，仅为旧引用可读保留。
-export const CARD_OVERFLOW_MARGIN = 20
 // 卡宽 = 列宽 − 24（左右各 12 内边距）
 export const CARD_WIDTH_INSET = 24
 export const CARD_HEIGHT = 148
@@ -25,8 +23,6 @@ export const PANEL_ORIGIN_Y = 35        // 仅剩 StageModeService 的 kwinrc �
 // 回退矩形在用（"顶栏之下的条"粗略语义）。⚠️ 全屏浮层化（d5d8630）后
 // 面板窗原点已是 (0,0)，computeTargetRects 的屏幕 y 不再加它——加了
 // 就是全列 +35px 系统偏移（2026-09-30 审计实锤）
-export const PERSPECTIVE_FOCAL = 900    // 文档锚：本导出无代码消费，值须与
-                                        // 特效 stageanim.cpp kPerspectiveFocal 同步
 
 // ── 拖拽排序（StageCard 与 StageSidebarWindow 共用；阈值/视觉同源）──
 export const DRAG_PICK_THRESHOLD = 12   // 按下位移超过此值才算拖拽（否则是点击）

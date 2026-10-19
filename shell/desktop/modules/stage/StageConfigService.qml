@@ -55,8 +55,6 @@ QtObject {
         // 全屏，占比换算在 StageSidebarWindow.cardGap（4.5% × 1040 ≈ 47）
         "cardGapPercent": { type: "real", min: 1, max: 10, def: 4.5 },
         "centerCards":  { type: "bool", def: true },
-        "deckSidePeek": { type: "int", min: 4, max: 60, def: 20 },
-        "focusDim":     { type: "bool", def: false },
         // ⚠️ 倾角上限 40 = 特效 stageanim 的 std::clamp 钳位（>40° 时
         // depth>focal 顶点镜像炸裂）——schema 越过它就是"设置页可选但
         // 静默被砍"，两处必须同步
@@ -96,7 +94,6 @@ QtObject {
         "autoMinimize": { type: "bool", def: true },
         // 保留整条侧栏条（exclusiveZone）：关=卡片纯悬浮，最大化/普通窗
         // 可铺满全宽、滑到卡片下方（卡片浮在窗上、输入只挡卡面）
-        "reserveStrip": { type: "bool", def: true },
         "autoMinDelay": { type: "int", min: 200, max: 3000, def: 650 },
         "demoteCaptureDelay": { type: "int", min: 100, max: 1500, def: 300 },
         "demoteDispatchDelay": { type: "int", min: 10, max: 200, def: 30 },
@@ -157,9 +154,7 @@ QtObject {
     // adaptive 模式：放得下时整列垂直居中；贴满时顶部锚定
     property bool centerCards: true
     // 聚焦退避距离：悬停聚焦时其余卡片从原位向两侧平移的像素
-    property int deckSidePeek: 20
     // 聚焦时压暗退避卡片（用户觉得不必要，默认关）
-    property bool focusDim: false
     // 倾角双旋钮（解耦，两模式统一）：deckRestTilt = 静置倾斜角（静止/
     // 交棒姿态，adaptive 完整显示也有静置倾角）；tiltAngle = 悬停倾斜角
     //（鼠标悬停时的倾角，0 = 悬停放平）。kwinrc TiltAngle 投影取
@@ -198,7 +193,6 @@ QtObject {
     property int tiltAnimDuration: 200
     property int engageDelay: 170
     property bool autoMinimize: true
-    property bool reserveStrip: true
     property int autoMinDelay: 650
     // 收编节拍：先拍快照（capture 等待多窗连拍完成）→ 矩形落盘 →
     // dispatch 后派发最小化（特效起跑延迟，与展开动画对拍）

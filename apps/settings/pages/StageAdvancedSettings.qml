@@ -43,8 +43,21 @@ ColumnLayout {
                 maxV: 0.95
                 decimals: 2
                 current: section.stageSnapshot.cardTint !== undefined
-                    ? section.stageSnapshot.cardTint : 0.55
+                    ? section.stageSnapshot.cardTint : 0.35
                 onCommit: function(v) { section.settingRequested("cardTint", v)
+            }
+            }
+
+            Controls.StageSliderRow {
+                colors: section.colors
+                label: I18n.tr("Card opacity")
+                unit: ""
+                minV: 0.2
+                maxV: 1.0
+                decimals: 2
+                current: section.stageSnapshot.cardOpacity !== undefined
+                    ? section.stageSnapshot.cardOpacity : 1.0
+                onCommit: function(v) { section.settingRequested("cardOpacity", v)
             }
             }
 
@@ -69,7 +82,7 @@ ColumnLayout {
                 maxV: 0.4
                 decimals: 2
                 current: section.stageSnapshot.cardBorder !== undefined
-                    ? section.stageSnapshot.cardBorder : 0.13
+                    ? section.stageSnapshot.cardBorder : 0.05
                 onCommit: function(v) { section.settingRequested("cardBorder", v)
             }
             }
@@ -98,7 +111,7 @@ ColumnLayout {
                 minV: 160
                 maxV: 640
                 current: section.stageSnapshot.thumbSize !== undefined
-                    ? section.stageSnapshot.thumbSize : 320
+                    ? section.stageSnapshot.thumbSize : 640
                 onCommit: function(v) { section.settingRequested("thumbSize", v)
             }
             }
@@ -195,7 +208,7 @@ ColumnLayout {
                 minV: 120
                 maxV: 2000
                 current: section.stageSnapshot.animDuration !== undefined
-                    ? section.stageSnapshot.animDuration : 420
+                    ? section.stageSnapshot.animDuration : 320
                 onCommit: function(v) { section.settingRequested("animDuration", v)
             }
             }

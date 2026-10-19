@@ -54,3 +54,4 @@ reasonix.toml
 # Session-local assistant metadata + local effect build dir
 .mimosa/
 kwin/kwin-effects-stageanim/build/
+.build-rb/

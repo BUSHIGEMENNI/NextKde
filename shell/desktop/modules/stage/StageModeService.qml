@@ -141,6 +141,9 @@ QtObject {
         // 边距改动（设置页「距离屏幕边缘」）同样重投影回退矩形：TargetX
         // 停在旧值会让 targets 未命中时的回落动画横向飞错位
         StageConfigService.stripMarginChanged.connect(svc._onSideChanged)
+        // 审查修复：卡宽也进回退矩形（_panelW）——不连则 TargetX/Width
+        // 停旧值，targets 未命中时回落动画带飞错位
+        StageConfigService.cardWidthChanged.connect(svc._onSideChanged)
         const reader = _procFactory.createObject(svc,
             { command: ["cat", svc.flagPath] })
         reader.exited.connect(function() {

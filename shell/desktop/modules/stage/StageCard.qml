@@ -289,7 +289,6 @@ Item {
             fanHoverSpread: StageConfigService.fanHoverSpread,
             cardTint: StageConfigService.cardTint,
             cardBorder: StageConfigService.cardBorder,
-            cardDepth: StageConfigService.cardDepth,
             cardTopLight: StageConfigService.cardTopLight,
             rightSide: card.rightSide,
             merged: card.merged,
@@ -356,7 +355,8 @@ Item {
         : (engaging
             ? StageConfigService.deckRestTilt
             : (isHovered
-                ? StageConfigService.tiltAngle
+                ? Math.max(0, StageConfigService.tiltAngle
+                    - StageConfigService.hoverFlatten)
                 : StageConfigService.deckRestTilt))
     Behavior on tiltCur {
         NumberAnimation {
@@ -432,7 +432,8 @@ Item {
         // cos(yaw)≈0.82，细文字/窗口边框无 mipmap 时混叠成锯齿。
         // （本机 GPU 预算补丁：mipmap 让每层 FBO 常驻 +33% 纹理；倾角
         // 近零（tiltAngle=0 的近平贴形态）时透视压缩不存在，条件化省。）
-        layer.mipmap: StageConfigService.tiltAngle > 0.5
+        layer.mipmap: Math.max(StageConfigService.deckRestTilt,
+            StageConfigService.tiltAngle) > 0.5
 
         // ── 扇叠背板（macOS Stage Manager 同语义）：同应用多窗 = 一前
         // 一后的卡片簇。声明在 plate 之前 = 画在卡背之下；随卡面一起被
@@ -807,8 +808,9 @@ Item {
                 // 改动被吞，opacity 链有效——快照退路在任何让位失败时
                 // 自动恢复，特效不在=livePainted=false=快照照常画）
                 opacity: card.livePainted ? 0.0 : 1.0
-                source: card.previewActive && !card.effectOwnedChrome
-                    ? displayUrl : ""
+                //（审查修复：此声明式绑定自引用成环（displayUrl 依赖
+                // source），已废弃——真源是 _syncPreviewSource 的命令式同步）
+                source: ""
                 // 同步解码 + 禁缓存：实时换帧时不留异步空白间隙（闪烁根源）
                 asynchronous: false
                 cache: false
