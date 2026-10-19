@@ -1192,7 +1192,10 @@ PanelWindow {
                     fanHoverSpread: p.fanHoverSpread,
                     cardTint: p.cardTint, cardBorder: p.cardBorder,
                     cardTopLight: p.cardTopLight,
-                    cardOpacity: p.cardOpacity !== undefined ? p.cardOpacity : 1.0 })
+                    //（上游收敛时把配置→载荷的透传断了：pose 不带 cardOpacity
+                    // 恒落 1.0，特效侧乘子干等——fallback 改读配置键修活）
+                    cardOpacity: p.cardOpacity !== undefined
+                        ? p.cardOpacity : StageConfigService.cardOpacity })
             }
         }
         // ⚠️ 载荷去重：桥事件风暴（缩略图等高频事件驱动 syncCards→
