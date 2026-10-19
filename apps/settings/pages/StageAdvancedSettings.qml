@@ -34,18 +34,6 @@ ColumnLayout {
                 font { pixelSize: 14; weight: Font.Medium }
             }
 
-            Controls.StageSliderRow {
-                objectName: "stage-card-radius-row"
-                colors: section.colors
-                label: I18n.tr("Card corner radius")
-                unit: " px"
-                minV: 0
-                maxV: 24
-                current: section.stageSnapshot.cardRadius !== undefined
-                    ? section.stageSnapshot.cardRadius : 14
-                onCommit: function(v) { section.settingRequested("cardRadius", v)
-            }
-            }
 
             Controls.StageSliderRow {
                 colors: section.colors
@@ -102,18 +90,6 @@ ColumnLayout {
             }
             }
 
-            Controls.StageSliderRow {
-                colors: section.colors
-                label: I18n.tr("Depth dimming")
-                unit: ""
-                minV: 0
-                maxV: 0.6
-                decimals: 2
-                current: section.stageSnapshot.cardDepth !== undefined
-                    ? section.stageSnapshot.cardDepth : 0.38
-                onCommit: function(v) { section.settingRequested("cardDepth", v)
-            }
-            }
 
             Controls.StageSliderRow {
                 colors: section.colors

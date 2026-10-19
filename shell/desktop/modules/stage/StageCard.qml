@@ -257,7 +257,9 @@ Item {
         //（两模式统一，adaptive 完整显示也有静置姿态）；悬停终态 =
         // 悬停倾斜角（特效 cursorPos 自驱悬停引擎的终点）
         const restTilt = StageConfigService.deckRestTilt
-        const hoverT = StageConfigService.tiltAngle
+        // 悬停回正角：静置角往 0° 回正 hoverFlatten 度（0=保持静置角）
+        const hoverT = Math.max(0,
+            StageConfigService.tiltAngle - StageConfigService.hoverFlatten)
         const title = card.count > 1
             ? (card.appName || card.title || I18n.tr("App")) + " ×" + card.count
             : (card.appName || card.title || I18n.tr("App"))

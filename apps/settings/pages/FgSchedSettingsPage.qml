@@ -30,18 +30,18 @@ ColumnLayout {
 
     readonly property var stagePresets: [
         { id: "lite", name: I18n.tr("Lithe"), detail: I18n.tr("Compact cards · slight tilt · crisp motion"),
-          values: { cardHeight: 145, cardSpacing: 14, tiltAngle: 16,
+          values: { cardHeight: 145, tiltAngle: 16,
                     deckRestTilt: 16, hoverScale: 1.0,
                     cardEnterDuration: 190, tiltAnimDuration: 220,
                     animDuration: 340, cardGlow: 0.08, cardDepth: 0.28 } },
         { id: "standard", name: I18n.tr("Standard"), detail: I18n.tr("Medium cards · moderate tilt · balanced motion"),
-          values: { cardHeight: 170, cardSpacing: 20, tiltAngle: 28,
+          values: { cardHeight: 170, tiltAngle: 28,
                     deckRestTilt: 28, hoverScale: 1.0,
                     cardEnterDuration: 240, tiltAnimDuration: 280,
                     animDuration: 400, cardGlow: 0.14, cardDepth: 0.40 } },
         // 「立体」= 用户 2026-09-30 定稿手感（204/28/40×2，悬停放大关）
         { id: "vivid", name: I18n.tr("Dimensional"), detail: I18n.tr("Large cards · strong tilt · relaxed motion"),
-          values: { cardHeight: 204, cardSpacing: 28, tiltAngle: 40,
+          values: { cardHeight: 204, tiltAngle: 40,
                     deckRestTilt: 40, hoverScale: 1.0,
                     cardEnterDuration: 280, tiltAnimDuration: 340,
                     animDuration: 430, cardGlow: 0.20, cardDepth: 0.50 } },
@@ -751,48 +751,18 @@ ColumnLayout {
 
             Controls.StageSliderRow {
                 colors: fgSchedPage.colors
-                label: I18n.tr("Retreat distance")
-                unit: " px"
-                minV: 4
-                maxV: 60
-                active: fgSchedPage.stageSnapshot.layoutMode === "scroll"
-                current: fgSchedPage.stageSnapshot.deckSidePeek !== undefined
-                    ? fgSchedPage.stageSnapshot.deckSidePeek : 20
-                onCommit: function(v) { fgSchedPage.stageSet("deckSidePeek", v)
+                label: I18n.tr("Hover flatten angle")
+                unit: "°"
+                minV: 0
+                maxV: 40
+                decimals: 1
+                current: fgSchedPage.stageSnapshot.hoverFlatten !== undefined
+                    ? fgSchedPage.stageSnapshot.hoverFlatten : 0
+                onCommit: function(v) { fgSchedPage.stageSet("hoverFlatten", v)
             }
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 12
 
-                ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: 4
-
-                    Text {
-                        text: I18n.tr("Dim retreated cards on focus")
-                        color: colors.primaryText
-                        font { pixelSize: 13; weight: Font.Medium }
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: I18n.tr("Dim retreated cards on hover focus to emphasize the main one; off keeps them at normal brightness.")
-                        color: colors.secondaryText
-                        font.pixelSize: 12
-                        wrapMode: Text.WordWrap
-                    }
-                }
-
-                LiquidControls.LiquidGlassSwitch {
-                    checked: fgSchedPage.stageSnapshot.focusDim === true
-                    accentColor: colors.accent
-                    trackColor: colors.divider
-                    onToggled: function(checked) {
-                        fgSchedPage.stageSet("focusDim", checked)
-                    }
-                }
-            }
 
             // adaptive 专属（scroll 模式下卡在槽内本就居中，禁用防误导）
             RowLayout {
