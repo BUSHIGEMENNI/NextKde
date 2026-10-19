@@ -40,6 +40,7 @@
 #include <QUuid>
 
 #include <cmath>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -2501,6 +2502,55 @@ void StageAnimEffect::drawLiveCardBody(const RenderViewport &viewport,
 
 }
 
+// cursorImage() 抓帧修复：KWin 6.7 对自绘 buffer 光标（SurfaceCursorSource）
+// 走 grabCursorOpenGL 离屏渲染，本机 GLES 栈上抓帧产物 alpha 被压成不透明
+// ——透明填充变纯黑块（客户端 buffer 经 WAYLAND_DEBUG 实证是干净的
+// ARGB8888，主题形状光标不走抓帧不受影响）。修法：从图像边缘 flood-fill
+// 「纯黑且不透明」的连通区置回全透明。健康图（边缘本透明或无纯黑边）
+// 零像素改动；光标图形不贴边，不受波及。仅在上传新光标图时执行一次。
+static int repairGrabbedCursorAlpha(QImage &img)
+{
+    const int w = img.width();
+    const int h = img.height();
+    std::vector<uchar> visited(size_t(w) * h, 0);
+    std::vector<int> stack;
+    auto pushIfBlack = [&](int x, int y) {
+        const int i = y * w + x;
+        if (!visited[i] && img.pixel(x, y) == 0xFF000000) {
+            visited[i] = 1;
+            stack.push_back(i);
+        }
+    };
+    for (int x = 0; x < w; ++x) {
+        pushIfBlack(x, 0);
+        pushIfBlack(x, h - 1);
+    }
+    for (int y = 0; y < h; ++y) {
+        pushIfBlack(0, y);
+        pushIfBlack(w - 1, y);
+    }
+    if (stack.empty())
+        return 0;
+    int cleared = 0;
+    while (!stack.empty()) {
+        const int i = stack.back();
+        stack.pop_back();
+        const int x = i % w;
+        const int y = i / w;
+        img.setPixel(x, y, 0x00000000);
+        ++cleared;
+        if (x > 0)
+            pushIfBlack(x - 1, y);
+        if (x + 1 < w)
+            pushIfBlack(x + 1, y);
+        if (y > 0)
+            pushIfBlack(x, y - 1);
+        if (y + 1 < h)
+            pushIfBlack(x, y + 1);
+    }
+    return cleared;
+}
+
 // 软件光标补绘：paintScreen 后置通道画在整场景（含场景内光标）之上，
 // 无硬件光标平面的环境（本容器）里光标会被卡面盖住＝"卡不透明时鼠标
 // 消失"。effects->cursorImage() 覆盖形状/表面两类光标；QImage 预乘，
@@ -2516,8 +2566,27 @@ void StageAnimEffect::drawSoftwareCursor(const RenderViewport &viewport,
     if (!m_cursorTex || key != m_cursorImgKey) {
         m_cursorImgKey = key;
         m_cursorHotspot = ci.hotSpot();
-        m_cursorTex = GLTexture::upload(
-            img.convertToFormat(QImage::Format_ARGB32_Premultiplied));
+        QImage im = img.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        // 状态日志：每张光标图一条（天然限频）——抓帧图四角像素与当时 blend 环境
+        GLint srcR = 0, dstR = 0, srcA = 0, dstA = 0;
+        glGetIntegerv(GL_BLEND_SRC_RGB, &srcR);
+        glGetIntegerv(GL_BLEND_DST_RGB, &dstR);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA, &srcA);
+        glGetIntegerv(GL_BLEND_DST_ALPHA, &dstA);
+        qCInfo(STAGEANIM_LOG) << "cursor img fmt" << img.format() << "size"
+                              << im.size() << "dpr" << im.devicePixelRatio()
+                              << "corners" << Qt::hex << (uint)im.pixel(0, 0)
+                              << (uint)im.pixel(im.width() - 1, 0)
+                              << (uint)im.pixel(0, im.height() - 1)
+                              << (uint)im.pixel(im.width() - 1, im.height() - 1)
+                              << "blend" << glIsEnabled(GL_BLEND) << "func"
+                              << srcR << dstR << srcA << dstA;
+        const int repaired = repairGrabbedCursorAlpha(im);
+        if (repaired > 0) {
+            qCInfo(STAGEANIM_LOG) << "cursor grab alpha repaired, cleared"
+                                  << repaired << "px";
+        }
+        m_cursorTex = GLTexture::upload(im);
         if (!m_cursorTex)
             return;
     }
@@ -2539,7 +2608,24 @@ void StageAnimEffect::drawSoftwareCursor(const RenderViewport &viewport,
     vbo->setVertices(verts);
     vbo->bindArrays();
     m_cursorTex->bind();
+    // 上面 cursorImage() 的抓帧（grabCursorOpenGL→ItemTreeView::paint）在本
+    // pass 内部跑 ItemRenderer，其节点级混合缓存会把 GL_BLEND 关掉且不恢复
+    // （实测绘制瞬间 enabled=0、func 仍是预乘值）——透明填充像素以替换模式
+    // 写穿 framebuffer＝光标周围"黑方块"（实为透明洞，宿主合成时显黑）。
+    // 光标绘制前显式恢复预乘混合；绘制后的状态由 pass 收尾统一还原。
+    const GLboolean cursorBlendWas = glIsEnabled(GL_BLEND);
+    GLint cSrcR = GL_ONE, cDstR = GL_ONE_MINUS_SRC_ALPHA;
+    GLint cSrcA = GL_ONE, cDstA = GL_ONE_MINUS_SRC_ALPHA;
+    glGetIntegerv(GL_BLEND_SRC_RGB, &cSrcR);
+    glGetIntegerv(GL_BLEND_DST_RGB, &cDstR);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &cSrcA);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &cDstA);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
     vbo->draw(GL_TRIANGLE_FAN, 0, 4);
+    glBlendFuncSeparate(cSrcR, cDstR, cSrcA, cDstA);
+    if (!cursorBlendWas)
+        glDisable(GL_BLEND);
     vbo->unbindArrays();
     m_cursorTex->unbind();
     // 光标补绘区同样要进损伤集（理由同卡面）
