@@ -268,18 +268,6 @@ ColumnLayout {
             // ── 快速调节：三个主参数（其余全在高级自定义） ──
             Controls.StageSliderRow {
                 colors: fgSchedPage.colors
-                label: I18n.tr("Card size")
-                unit: " px"
-                minV: 100
-                maxV: 220
-                current: fgSchedPage.stageSnapshot.cardHeight !== undefined
-                    ? fgSchedPage.stageSnapshot.cardHeight : 170
-                onCommit: function(v) { fgSchedPage.stageSet("cardHeight", v)
-            }
-            }
-
-            Controls.StageSliderRow {
-                colors: fgSchedPage.colors
                 label: I18n.tr("Card width")
                 unit: " px"
                 minV: 120
@@ -407,18 +395,6 @@ ColumnLayout {
                 current: fgSchedPage.stageSnapshot.cardGapPercent !== undefined
                     ? fgSchedPage.stageSnapshot.cardGapPercent : 4.5
                 onCommit: function(v) { fgSchedPage.stageSet("cardGapPercent", v)
-            }
-            }
-
-            Controls.StageSliderRow {
-                colors: fgSchedPage.colors
-                label: I18n.tr("Card height")
-                unit: " px"
-                minV: 100
-                maxV: 220
-                current: fgSchedPage.stageSnapshot.cardHeight !== undefined
-                    ? fgSchedPage.stageSnapshot.cardHeight : 170
-                onCommit: function(v) { fgSchedPage.stageSet("cardHeight", v)
             }
             }
 
