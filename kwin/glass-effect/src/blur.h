@@ -66,6 +66,8 @@ struct BlurRenderData
         QSize size;
     };
     std::unordered_map<uint, BlurOverrideScratch> blurOverrideScratch;
+    BlurOverrideScratch gaussianTemp;
+    std::unordered_map<uint, BlurOverrideScratch> gaussianScratch;
 };
 
 struct BlurEffectData
@@ -131,7 +133,12 @@ public:
     void prePaintWindow(RenderView *view, EffectWindow *w, WindowPrePaintData &data, std::chrono::milliseconds presentTime) override;
 #endif
 #endif
-    void drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const BlurRegion &deviceRegion, WindowPaintData &data) override;
+#ifdef KOS_KWIN_PAINT_RESULT_API
+    bool
+#else
+    void
+#endif
+    drawWindow(const RenderTarget &renderTarget, const RenderViewport &viewport, EffectWindow *w, int mask, const BlurRegion &deviceRegion, WindowPaintData &data) override;
 
     bool provides(Feature feature) override;
     bool isActive() const override;
@@ -211,6 +218,8 @@ private:
         int materialSoftnessLocation;
         int materialReflectionStrengthLocation;
 
+        int tintLocation;
+        int liquidEnabledLocation;
         int scrimModeLocation;
         int scrimCapLocation;
         int scrimDecayLocation;
@@ -225,6 +234,11 @@ private:
         int offsetLocation;
         int halfpixelLocation;
     } m_downsamplePass;
+
+    struct {
+        std::unique_ptr<GLShader> shader;
+        int mvp, direction, kernel, count;
+    } m_gaussianPass;
 
     struct
     {
