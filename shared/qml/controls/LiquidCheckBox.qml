@@ -5,13 +5,13 @@ import "../foundation" as Foundation
 CheckBox {
     id: root
     implicitHeight: 34
-    spacing: 10
+    spacing: 8
     indicator: LiquidSurface {
-        implicitWidth: 22
-        implicitHeight: 22
+        implicitWidth: 16
+        implicitHeight: 16
         x: root.leftPadding
         y: (root.height - height) / 2
-        radius: 7
+        radius: 4
         tintColor: root.checked ? Foundation.AppTheme.accent : "#ffffff"
         tintStrength: root.checked ? 0.38 : 0.05
         Text {
@@ -24,7 +24,7 @@ CheckBox {
         Rectangle {
             anchors.fill: parent
             anchors.margins: -2
-            radius: 9
+            radius: 6
             color: "transparent"
             border.width: 2
             border.color: Foundation.AppTheme.focusRing
