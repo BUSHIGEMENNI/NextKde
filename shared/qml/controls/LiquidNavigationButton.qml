@@ -22,7 +22,7 @@ Button {
             anchors.fill: parent
             radius: 10
             tintColor: Foundation.AppTheme.accent
-            tintStrength: root.checked ? 0.20 : 0.05
+            tintStrength: root.checked ? 0.21 : 0.05
             visible: root.checked
         }
         Rectangle {

@@ -14,12 +14,29 @@ CheckBox {
         radius: 4
         tintColor: root.checked ? Foundation.AppTheme.accent : "#ffffff"
         tintStrength: root.checked ? 0.38 : 0.05
+        // §4.6 复选框：选中 accent + 白勾；半选横线；热区 44。
         Text {
             anchors.centerIn: parent
-            text: root.checkState === Qt.PartiallyChecked ? "−" : "✓"
-            visible: root.checkState !== Qt.Unchecked
-            color: Foundation.AppTheme.text
-            font.pixelSize: 15
+            text: "✓"
+            visible: root.checkState === Qt.Checked
+            color: "#ffffff"
+            font.pixelSize: 13
+            font.weight: Font.DemiBold
+        }
+        Rectangle {
+            anchors.centerIn: parent
+            width: 8
+            height: 2
+            radius: 1
+            color: "#ffffff"
+            visible: root.checkState === Qt.PartiallyChecked
+        }
+        MouseArea {
+            anchors.centerIn: parent
+            width: 44
+            height: 44
+            enabled: root.enabled
+            onClicked: root.toggle()
         }
         Rectangle {
             anchors.fill: parent
