@@ -4,7 +4,7 @@ import QtQuick.Controls
 
 Pane {
     id: root
-    property real radius: 22
+    property real radius: 20
     property real readability: 0.47
     property LiquidBackdrop backdrop: LiquidStyle.backdropFor(root.Window.window)
     padding: 18
