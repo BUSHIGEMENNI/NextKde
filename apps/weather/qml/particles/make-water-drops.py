@@ -1,85 +1,109 @@
 #!/usr/bin/env python3
-"""生成雨天"玻璃上挂水珠"材质贴图（批 9；R107 CPU 优化版）。
+"""生成雨天"玻璃上挂水珠"材质贴图（批 10：扁平透镜水痕）。
 
 纯程序化绘制，无外部美术资源。用法：
     python3 make-water-drops.py [输出目录]
 默认输出到脚本所在目录。
 
-每颗水珠三层明暗（裁决硬要求，缺一不合格）：
-  1. 上缘高光  白 α 0.85–0.95，1–2px 弧
-  2. 内部偏移亮点（伪折射）白 α 0.30–0.40，圆心偏左上 30%
-  3. 下缘暗边  深蓝 rgba(10,30,72) α 0.30–0.40，1px 柔边
-外圈柔软过渡，无硬边圆点；3×3 平铺拷贝保证无缝。
+批 10 硬要求（取代批 9 的"玻璃球"画法）：
+  - 形状：竖向椭圆（宽:高 = 1 : 1.10–1.25），10% 为下缘收窄的泪滴形；轮廓 blur 1.2px。
+  - 尺寸：70% 2–5px / 25% 5–9px / 5% 9–14px（不再均匀）。
+  - 内部：α 0.03–0.08 近乎透明 + 轻微高斯模糊（折射感），禁止通体白填充。
+  - 高光：只留一个偏心小点（直径 1–2px、偏左上 25–35%、白 α 0.55–0.85、blur 0.6）。
+  - 边缘：1px 折射环 α 0.10–0.18（白/深蓝二选一），删除上缘白弧与下缘暗边。
+  - 5% 大水珠额外加下缘内侧 1px 白弧 α 0.20–0.25。
+  - 密度：512² 共约 260 颗，上半区加密 1.3×；3×3 平铺拷贝保证无缝。
+  - 雨幕细竖线保留但再压淡到有效 α 0.04–0.07（贴图内按 1/QML 层 opacity 预乘）。
 
-R107（CPU）：
-  - 贴图 1024² → 512²，点数按面积同密度减半（近 320→160、远 180→90）。
-  - 远层、雨幕烘焙进同一张 water-drops.png（远层按 0.35/0.55 预乘 α，
-    雨幕按 0.08/0.55 预乘 α），QML 只剩 1 个全屏 Image 层（原 3 层）。
+R107 CPU 结构保持：远层/雨幕已并入同一张 water-drops.png，QML 只有 1 个全屏 Image。
 """
+import math
 import os
 import random
 import sys
 
 from PIL import Image, ImageDraw, ImageFilter
 
-SS = 2           # 超采样
-SIZE = 512       # 1024² → 512²（同密度：点数按面积 ×1/4）
+SS = 2                 # 超采样
+SIZE = 512             # 贴图边长
+TOTAL = 260            # 水珠总数（批 10）
+UPPER_RATIO = 1.3      # 上半区密度倍数
+LAYER_OPACITY = 0.55   # QML 水珠层基准 opacity（雨幕 α 预乘用）
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__))
 
-NEAR_OPACITY = 0.55   # QML 近层基准 opacity（合并后的唯一一层）
-FAR_OPACITY = 0.35    # 原远层基准 opacity → 预乘 FAR_OPACITY/NEAR_OPACITY
-MIST_OPACITY = 0.08   # 原雨幕层 opacity → 预乘 MIST_OPACITY/NEAR_OPACITY
+
+def _size_bucket(rnd, bucket):
+    """按 70% / 25% / 5% 三档给出直径。"""
+    if bucket == 0:
+        return 2.0 + rnd.random() * 3.0      # 2–5
+    if bucket == 1:
+        return 5.0 + rnd.random() * 4.0      # 5–9
+    return 9.0 + rnd.random() * 5.0          # 9–14
 
 
-def _tile(seed, count, dmin, dmax, blur):
-    """在 3×3 平铺区域内画水珠，再裁出中央格；返回 RGBA Image。"""
-    rnd = random.Random(seed)
-    base = Image.new("RGBA", (SIZE * SS, SIZE * SS), (0, 0, 0, 0))
-    dark = Image.new("RGBA", (SIZE * SS, SIZE * SS), (0, 0, 0, 0))
-    bd, dd = ImageDraw.Draw(base), ImageDraw.Draw(dark)
-    for _ in range(count):
-        x, y = rnd.random() * SIZE, rnd.random() * SIZE
-        dia = dmin + rnd.random() * (dmax - dmin)
-        r = dia * SS / 2.0
-        for ox in (-SIZE, 0, SIZE):
-            for oy in (-SIZE, 0, SIZE):
-                cx, cy = x * SS + ox * SS, y * SS + oy * SS
-                box = [cx - r, cy - r, cx + r, cy + r]
-                # 柔和的珠体（很低 α，只给一点点折射色，避免硬圆点）
-                bd.ellipse(box, fill=(205, 226, 255, 16))
-                # 1. 上缘高光白弧
-                hi_a = int(255 * (0.85 + rnd.random() * 0.10))
-                bd.arc(box, 205, 335, fill=(255, 255, 255, hi_a),
-                       width=max(1, int(1.4 * SS)))
-                # 2. 内部偏移亮点（圆心左上 30%）
-                ir = max(1.0, r * 0.26)
-                ix, iy = cx - r * 0.30, cy - r * 0.30
-                in_a = int(255 * (0.30 + rnd.random() * 0.10))
-                bd.ellipse([ix - ir, iy - ir, ix + ir, iy + ir],
-                           fill=(255, 255, 255, in_a))
-                # 3. 下缘暗边（单独一层，稍后模糊 1–2px）
-                dk_a = int(255 * (0.30 + rnd.random() * 0.10))
-                dd.arc(box, 25, 155, fill=(10, 30, 72, dk_a),
-                       width=max(1, int(1.0 * SS)))
-    dark = dark.filter(ImageFilter.GaussianBlur(1.4 * SS))
-    img = Image.alpha_composite(base, dark)
-    img = img.resize((SIZE, SIZE), Image.LANCZOS)
-    if blur > 0:
-        img = img.filter(ImageFilter.GaussianBlur(blur))
-    return img
+def _shape_points(cx, cy, rx, ry, teardrop):
+    """竖向椭圆；teardrop 时下缘宽度按 sin 收窄到 55%。"""
+    pts = []
+    for i in range(40):
+        t = 2.0 * math.pi * i / 40.0
+        f = 1.0
+        if teardrop and math.sin(t) > 0:
+            f = 1.0 - 0.45 * math.sin(t)
+        pts.append((cx + rx * math.cos(t) * f, cy + ry * math.sin(t)))
+    return pts
 
 
-def make_mist():
-    """极淡竖向雾条，可平铺；α 预乘 1/NEAR_OPACITY 使上屏仍为 0.06–0.10。"""
-    rnd = random.Random(20261025)
+def _draw_drop(body, accents, rnd, x, y, dia, teardrop):
+    """画一颗扁平透镜水珠（body: 内部+折射环；accents: 偏心高光+可选下缘白弧）。"""
+    bd, ad = ImageDraw.Draw(body), ImageDraw.Draw(accents)
+    rx = dia * 0.5 * SS
+    ry = rx * (1.10 + rnd.random() * 0.15)          # 宽:高 = 1 : 1.10–1.25
+    for ox in (-SIZE, 0, SIZE):
+        for oy in (-SIZE, 0, SIZE):
+            cx = x * SS + ox * SS
+            cy = y * SS + oy * SS
+            pts = _shape_points(cx, cy, rx, ry, teardrop)
+
+            # 内部：几乎透明，能透出天空/云
+            inner_a = int(255 * (0.03 + rnd.random() * 0.05))
+            bd.polygon(pts, fill=(205, 226, 255, inner_a))
+
+            # 边缘：1px 折射环，白 / 深蓝二选一
+            ring_a = int(255 * (0.10 + rnd.random() * 0.08))
+            if rnd.random() < 0.7:
+                ring_color = (255, 255, 255, ring_a)
+            else:
+                ring_color = (10, 30, 72, ring_a)
+            bd.line(pts + [pts[0]], fill=ring_color,
+                    width=max(1, SS), joint="curve")
+
+            # 偏心单点高光（圆心偏左上 25%–35%）
+            hr = (0.5 + rnd.random() * 0.5) * SS      # 直径 1–2px
+            hx = cx - rx * (0.25 + rnd.random() * 0.10)
+            hy = cy - ry * (0.25 + rnd.random() * 0.10)
+            hi_a = int(255 * (0.55 + rnd.random() * 0.30))
+            ad.ellipse([hx - hr, hy - hr, hx + hr, hy + hr],
+                       fill=(255, 255, 255, hi_a))
+
+            # 5% 大水珠：下缘内侧 1px 白弧（透镜边缘折光）
+            if dia >= 5.0 and rnd.random() < 0.05:
+                ax, ay = rx * 0.82, ry * 0.82
+                angle_a = int(255 * (0.20 + rnd.random() * 0.05))
+                ad.arc([cx - ax, cy - ay, cx + ax, cy + ay], 25, 155,
+                       fill=(255, 255, 255, angle_a), width=max(1, SS))
+
+
+def _make_veil():
+    """极淡竖向雨幕；α 按 1/LAYER_OPACITY 预乘，上屏有效 0.04–0.07。"""
+    rnd = random.Random(20261026)
     img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    for _ in range(65):                      # 260/1024² → 65/512²（同密度）
+    for _ in range(65):
         x = rnd.random() * SIZE
         w = 0.5 + rnd.random() * 0.8
         h = 15 + rnd.random() * 60
         y = rnd.random() * SIZE
-        a = int(255 * (0.06 + rnd.random() * 0.04) / NEAR_OPACITY)
+        a = int(255 * (0.04 + rnd.random() * 0.03) / LAYER_OPACITY)
         for oy in (-SIZE, 0, SIZE):
             for ox in (-SIZE, 0, SIZE):
                 d.line([(x + ox, y + oy), (x + ox, y + oy + h)],
@@ -87,21 +111,47 @@ def make_mist():
     return img.filter(ImageFilter.GaussianBlur(0.4))
 
 
-def _scale_alpha(img, factor):
-    """整图 alpha 预乘 factor（用 putalpha 保持颜色不变）。"""
-    alpha = img.getchannel("A").point(lambda v: int(round(v * factor)))
-    out = img.copy()
-    out.putalpha(alpha)
-    return out
+def main():
+    rnd = random.Random(20261026)
+    big = SIZE * SS
+    body = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+    accents = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+
+    # 上半区 : 下半区 = 1.3 : 1（总数 260 → 147 / 113）
+    n_upper = int(round(TOTAL * UPPER_RATIO / (1.0 + UPPER_RATIO)))
+    halves = [(n_upper, 0.0, SIZE * 0.5), (TOTAL - n_upper, SIZE * 0.5, SIZE)]
+
+    buckets = [0, 0, 0]
+    made = 0
+    for n_half, y0, y1 in halves:
+        # 每个半区内部同样保持 70% / 25% / 5%
+        b0 = round(n_half * 0.70)
+        b1 = round(n_half * 0.25)
+        local = (b0, b1, n_half - b0 - b1)
+        for bucket, n in enumerate(local):
+            buckets[bucket] += n
+            for _ in range(n):
+                x = rnd.random() * SIZE
+                y = y0 + rnd.random() * (y1 - y0)
+                dia = _size_bucket(rnd, bucket)
+                teardrop = rnd.random() < 0.10
+                _draw_drop(body, accents, rnd, x, y, dia, teardrop)
+                made += 1
+
+    # 轮廓 blur 1.2px（SS 降采样已提供约 0.5px 抗锯齿，这里再补 0.8px 达到总柔化 ≈1.2px）
+    body = body.resize((SIZE, SIZE), Image.LANCZOS).filter(ImageFilter.GaussianBlur(0.8))
+    accents = accents.resize((SIZE, SIZE), Image.LANCZOS).filter(ImageFilter.GaussianBlur(0.6))
+
+    drops = Image.alpha_composite(body, accents)
+    merged = Image.alpha_composite(_make_veil(), drops)
+    merged.save(os.path.join(OUT, "water-drops.png"))
+
+    # 统计：水珠实际总数（排除雨幕线后的连通点无法简单计数，这里按生成参数报）
+    print("generated water-drops.png: %dx%d drops=%d (upper=%d lower=%d, %.2f:1)"
+          % (SIZE, SIZE, made, n_upper, TOTAL - n_upper, UPPER_RATIO))
+    print("size buckets: 2-5px=%d 5-9px=%d 9-14px=%d; teardrop=10%%; "
+          "bottom-inner-arc=5%% of >=5px drops" % tuple(buckets))
 
 
-near = _tile(20261024, 160, 3, 14, 0.0)      # 原 320/1024² → 160/512²
-far = _tile(20261025, 90, 2, 7, 1.0)         # 原 180/1024² → 90/512²
-far = _scale_alpha(far, FAR_OPACITY / NEAR_OPACITY)
-mist = _scale_alpha(make_mist(), 1.0)        # α 已按 1/NEAR_OPACITY 预乘
-
-# 自下而上合成：雨幕 → 远层 → 近层（与原三层叠放顺序一致）
-merged = Image.alpha_composite(Image.alpha_composite(mist, far), near)
-merged.save(os.path.join(OUT, "water-drops.png"))
-print("generated water-drops.png: size=%dx%d near=%d far=%d mist=%d"
-      % (SIZE, SIZE, 160, 90, 65))
+if __name__ == "__main__":
+    main()
