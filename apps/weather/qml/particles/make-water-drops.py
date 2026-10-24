@@ -5,15 +5,16 @@
     python3 make-water-drops.py [输出目录]
 默认输出到脚本所在目录。
 
-批 10 硬要求（取代批 9 的"玻璃球"画法）：
-  - 形状：竖向椭圆（宽:高 = 1 : 1.10–1.25），10% 为下缘收窄的泪滴形；轮廓 blur 1.2px。
+批 11 修订（取代批 10 的泪滴/拖尾）：所有水珠一律圆/竖向椭圆（1:1.10），
+  删除泪滴形与拖尾——单颗不得再像流星；雨幕有效 α 压到 0.02。以下批 10 要求保留：
+  - 形状：竖向椭圆（宽:高 = 1 : 1.10），无泪滴、无拖尾；轮廓 blur 1.2px。
   - 尺寸：70% 2–5px / 25% 5–9px / 5% 9–14px（不再均匀）。
   - 内部：α 0.03–0.08 近乎透明 + 轻微高斯模糊（折射感），禁止通体白填充。
   - 高光：只留一个偏心小点（直径 1–2px、偏左上 25–35%、白 α 0.55–0.85、blur 0.6）。
   - 边缘：1px 折射环 α 0.10–0.18（白/深蓝二选一），删除上缘白弧与下缘暗边。
   - 5% 大水珠额外加下缘内侧 1px 白弧 α 0.20–0.25。
   - 密度：512² 共约 260 颗，上半区加密 1.3×；3×3 平铺拷贝保证无缝。
-  - 雨幕细竖线保留但再压淡到有效 α 0.04–0.07（贴图内按 1/QML 层 opacity 预乘）。
+  - 雨幕细竖线保留但压到有效 α 0.02（贴图内按 1/QML 层 opacity 预乘）。
 
 R107 CPU 结构保持：远层/雨幕已并入同一张 water-drops.png，QML 只有 1 个全屏 Image。
 """
@@ -41,28 +42,22 @@ def _size_bucket(rnd, bucket):
     return 9.0 + rnd.random() * 5.0          # 9–14
 
 
-def _shape_points(cx, cy, rx, ry, teardrop):
-    """竖向椭圆；teardrop 时下缘宽度按 sin 收窄到 55%。"""
-    pts = []
-    for i in range(40):
-        t = 2.0 * math.pi * i / 40.0
-        f = 1.0
-        if teardrop and math.sin(t) > 0:
-            f = 1.0 - 0.45 * math.sin(t)
-        pts.append((cx + rx * math.cos(t) * f, cy + ry * math.sin(t)))
-    return pts
+def _shape_points(cx, cy, rx, ry):
+    """竖向椭圆（1:1.10），无泪滴收窄——批 11：单颗不得有方向性。"""
+    return [(cx + rx * math.cos(2.0 * math.pi * i / 40.0),
+             cy + ry * math.sin(2.0 * math.pi * i / 40.0)) for i in range(40)]
 
 
-def _draw_drop(body, accents, rnd, x, y, dia, teardrop):
+def _draw_drop(body, accents, rnd, x, y, dia):
     """画一颗扁平透镜水珠（body: 内部+折射环；accents: 偏心高光+可选下缘白弧）。"""
     bd, ad = ImageDraw.Draw(body), ImageDraw.Draw(accents)
     rx = dia * 0.5 * SS
-    ry = rx * (1.10 + rnd.random() * 0.15)          # 宽:高 = 1 : 1.10–1.25
+    ry = rx * 1.10                                  # 宽:高 = 1 : 1.10（批 11 固定）
     for ox in (-SIZE, 0, SIZE):
         for oy in (-SIZE, 0, SIZE):
             cx = x * SS + ox * SS
             cy = y * SS + oy * SS
-            pts = _shape_points(cx, cy, rx, ry, teardrop)
+            pts = _shape_points(cx, cy, rx, ry)
 
             # 内部：几乎透明，能透出天空/云
             inner_a = int(255 * (0.03 + rnd.random() * 0.05))
@@ -94,7 +89,7 @@ def _draw_drop(body, accents, rnd, x, y, dia, teardrop):
 
 
 def _make_veil():
-    """极淡竖向雨幕；α 按 1/LAYER_OPACITY 预乘，上屏有效 0.04–0.07。"""
+    """极淡纯竖直雨幕；α 按 1/LAYER_OPACITY 预乘，上屏有效 0.02（批 11）。"""
     rnd = random.Random(20261026)
     img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -103,7 +98,7 @@ def _make_veil():
         w = 0.5 + rnd.random() * 0.8
         h = 15 + rnd.random() * 60
         y = rnd.random() * SIZE
-        a = int(255 * (0.04 + rnd.random() * 0.03) / LAYER_OPACITY)
+        a = int(255 * 0.02 / LAYER_OPACITY)
         for oy in (-SIZE, 0, SIZE):
             for ox in (-SIZE, 0, SIZE):
                 d.line([(x + ox, y + oy), (x + ox, y + oy + h)],
@@ -134,8 +129,7 @@ def main():
                 x = rnd.random() * SIZE
                 y = y0 + rnd.random() * (y1 - y0)
                 dia = _size_bucket(rnd, bucket)
-                teardrop = rnd.random() < 0.10
-                _draw_drop(body, accents, rnd, x, y, dia, teardrop)
+                _draw_drop(body, accents, rnd, x, y, dia)
                 made += 1
 
     # 轮廓 blur 1.2px（SS 降采样已提供约 0.5px 抗锯齿，这里再补 0.8px 达到总柔化 ≈1.2px）
@@ -149,8 +143,9 @@ def main():
     # 统计：水珠实际总数（排除雨幕线后的连通点无法简单计数，这里按生成参数报）
     print("generated water-drops.png: %dx%d drops=%d (upper=%d lower=%d, %.2f:1)"
           % (SIZE, SIZE, made, n_upper, TOTAL - n_upper, UPPER_RATIO))
-    print("size buckets: 2-5px=%d 5-9px=%d 9-14px=%d; teardrop=10%%; "
+    print("size buckets: 2-5px=%d 5-9px=%d 9-14px=%d; teardrop=0%%; "
           "bottom-inner-arc=5%% of >=5px drops" % tuple(buckets))
+    print("veil effective alpha=0.02 (in-texture %.4f)" % (0.02 / LAYER_OPACITY))
 
 
 if __name__ == "__main__":
