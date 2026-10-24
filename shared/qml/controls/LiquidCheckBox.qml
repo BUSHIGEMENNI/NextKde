@@ -38,14 +38,16 @@ CheckBox {
             enabled: root.enabled
             onClicked: root.toggle()
         }
+        // §5 Focus：外环 2px accent，偏移 2（margins −4 扣描边 2 留白恰 2px），
+        // 圆角 = 基准 +2；accent 无彩/明度越界时回退 focusFallback。
         Rectangle {
             anchors.fill: parent
-            anchors.margins: -2
+            anchors.margins: -4
             radius: 6
             color: "transparent"
             border.width: 2
-            border.color: Foundation.AppTheme.focusRing
-            visible: root.activeFocus
+            border.color: LiquidStyle.focusColor(Foundation.AppTheme.accent)
+            visible: root.activeFocus && root.enabled
         }
     }
     contentItem: Label {
