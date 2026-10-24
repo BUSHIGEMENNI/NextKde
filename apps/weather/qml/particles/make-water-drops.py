@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""生成雨天"玻璃上挂水珠"材质贴图（批 9）。
+"""生成雨天"玻璃上挂水珠"材质贴图（批 9；R107 CPU 优化版）。
 
 纯程序化绘制，无外部美术资源。用法：
     python3 make-water-drops.py [输出目录]
@@ -10,6 +10,11 @@
   2. 内部偏移亮点（伪折射）白 α 0.30–0.40，圆心偏左上 30%
   3. 下缘暗边  深蓝 rgba(10,30,72) α 0.30–0.40，1px 柔边
 外圈柔软过渡，无硬边圆点；3×3 平铺拷贝保证无缝。
+
+R107（CPU）：
+  - 贴图 1024² → 512²，点数按面积同密度减半（近 320→160、远 180→90）。
+  - 远层、雨幕烘焙进同一张 water-drops.png（远层按 0.35/0.55 预乘 α，
+    雨幕按 0.08/0.55 预乘 α），QML 只剩 1 个全屏 Image 层（原 3 层）。
 """
 import os
 import random
@@ -18,12 +23,16 @@ import sys
 from PIL import Image, ImageDraw, ImageFilter
 
 SS = 2           # 超采样
-SIZE = 1024
+SIZE = 512       # 1024² → 512²（同密度：点数按面积 ×1/4）
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.dirname(os.path.abspath(__file__))
 
+NEAR_OPACITY = 0.55   # QML 近层基准 opacity（合并后的唯一一层）
+FAR_OPACITY = 0.35    # 原远层基准 opacity → 预乘 FAR_OPACITY/NEAR_OPACITY
+MIST_OPACITY = 0.08   # 原雨幕层 opacity → 预乘 MIST_OPACITY/NEAR_OPACITY
 
-def _tile(draw_fn, seed, count, dmin, dmax, blur, out):
-    """在 3×3 平铺区域内画水珠，再裁出中央格。"""
+
+def _tile(seed, count, dmin, dmax, blur):
+    """在 3×3 平铺区域内画水珠，再裁出中央格；返回 RGBA Image。"""
     rnd = random.Random(seed)
     base = Image.new("RGBA", (SIZE * SS, SIZE * SS), (0, 0, 0, 0))
     dark = Image.new("RGBA", (SIZE * SS, SIZE * SS), (0, 0, 0, 0))
@@ -57,32 +66,42 @@ def _tile(draw_fn, seed, count, dmin, dmax, blur, out):
     img = img.resize((SIZE, SIZE), Image.LANCZOS)
     if blur > 0:
         img = img.filter(ImageFilter.GaussianBlur(blur))
-    img.save(out)
+    return img
 
 
-def make_mist(out):
-    """极淡竖向雾条（α 0.06–0.10），#cfe0ff 色系，可平铺。"""
-    size = 512
+def make_mist():
+    """极淡竖向雾条，可平铺；α 预乘 1/NEAR_OPACITY 使上屏仍为 0.06–0.10。"""
     rnd = random.Random(20261025)
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    for _ in range(260):
-        x = rnd.random() * size
-        w = 1 + rnd.random() * 1.5
-        h = 30 + rnd.random() * 120
-        y = rnd.random() * size
-        a = int(255 * (0.06 + rnd.random() * 0.04))
-        for oy in (-size, 0, size):
-            for ox in (-size, 0, size):
+    for _ in range(65):                      # 260/1024² → 65/512²（同密度）
+        x = rnd.random() * SIZE
+        w = 0.5 + rnd.random() * 0.8
+        h = 15 + rnd.random() * 60
+        y = rnd.random() * SIZE
+        a = int(255 * (0.06 + rnd.random() * 0.04) / NEAR_OPACITY)
+        for oy in (-SIZE, 0, SIZE):
+            for ox in (-SIZE, 0, SIZE):
                 d.line([(x + ox, y + oy), (x + ox, y + oy + h)],
-                       fill=(207, 224, 255, a), width=max(1, int(w)))
-    img = img.filter(ImageFilter.GaussianBlur(0.8))
-    img.save(out)
+                       fill=(207, 224, 255, a), width=1)
+    return img.filter(ImageFilter.GaussianBlur(0.4))
 
 
-_tile(None, 20261024, 320, 3, 14, 0.0,
-      os.path.join(OUT, "water-drops-near.png"))
-_tile(None, 20261025, 180, 2, 7, 1.0,
-      os.path.join(OUT, "water-drops-far.png"))
-make_mist(os.path.join(OUT, "rain-mist.png"))
-print("generated water-drop tiles in", OUT)
+def _scale_alpha(img, factor):
+    """整图 alpha 预乘 factor（用 putalpha 保持颜色不变）。"""
+    alpha = img.getchannel("A").point(lambda v: int(round(v * factor)))
+    out = img.copy()
+    out.putalpha(alpha)
+    return out
+
+
+near = _tile(20261024, 160, 3, 14, 0.0)      # 原 320/1024² → 160/512²
+far = _tile(20261025, 90, 2, 7, 1.0)         # 原 180/1024² → 90/512²
+far = _scale_alpha(far, FAR_OPACITY / NEAR_OPACITY)
+mist = _scale_alpha(make_mist(), 1.0)        # α 已按 1/NEAR_OPACITY 预乘
+
+# 自下而上合成：雨幕 → 远层 → 近层（与原三层叠放顺序一致）
+merged = Image.alpha_composite(Image.alpha_composite(mist, far), near)
+merged.save(os.path.join(OUT, "water-drops.png"))
+print("generated water-drops.png: size=%dx%d near=%d far=%d mist=%d"
+      % (SIZE, SIZE, 160, 90, 65))
