@@ -5,6 +5,9 @@ layout(location = 0) out vec4 fragColor;
 
 layout(binding = 1) uniform sampler2D source;
 layout(binding = 2) uniform sampler2D waterMap;
+// 批 12 余项①：折射只在天空区生效。掩码为全窗白底 + 卡片/侧栏黑矩形；
+// 掩码为 0 处输出未折射的天空（卡片底下仍透天空，但不透水珠）。
+layout(binding = 3) uniform sampler2D maskSource;
 
 layout(std140, binding = 0) uniform buf {
     mat4 qt_Matrix;
@@ -37,5 +40,9 @@ void main()
     // 极淡雾层（水珠内部），不影响水珠外的天空。
     col = mix(col, vec3(0.85, 0.91, 1.0), w.a * fog);
 
-    fragColor = vec4(col, 1.0) * qt_Opacity;
+    // 卡片/侧栏区域不折射：掩码 0 → 未偏移的天空原样输出（不含高光/雾）。
+    vec3 plain = texture(source, uv).rgb;
+    vec3 masked = mix(plain, col, texture(maskSource, uv).r);
+
+    fragColor = vec4(masked, 1.0) * qt_Opacity;
 }
