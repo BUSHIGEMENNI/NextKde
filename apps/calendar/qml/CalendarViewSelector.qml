@@ -24,6 +24,20 @@ FocusScope {
     property int _pressedIndex: -1
     property int _visualIndex: 0
     property int _pendingIndex: -1
+    property bool _ready: false
+    readonly property bool lensExpanded: sampling && !AppTheme.reduceMotion
+        && (_pressedIndex >= 0 || releasePulse.running)
+
+    function resetPress() {
+        _pressedIndex = -1
+        releasePulse.stop()
+    }
+    onEnabledChanged: { if (!enabled) resetPress() }
+    onVisibleChanged: { if (!visible) resetPress() }
+    on_VisualIndexChanged: {
+        if (_ready && !AppTheme.reduceMotion)
+            releasePulse.restart()
+    }
 
     readonly property int safeIndex: clampedIndex(currentIndex)
     readonly property real segmentWidth: labels.length > 0 ? (width - 4) / labels.length : 0
@@ -40,6 +54,8 @@ FocusScope {
             return
         // Draw the result first. The owner may update its persistent state
         // through IPC, but that round trip must not consume the first click.
+        if (index === _visualIndex && !AppTheme.reduceMotion)
+            releasePulse.restart()
         _pendingIndex = index
         _visualIndex = index
         selectionRequested(index)
@@ -66,7 +82,17 @@ FocusScope {
         _visualIndex = clampedIndex(currentIndex)
         _pendingIndex = -1
     }
-    Component.onCompleted: _visualIndex = safeIndex
+    Component.onCompleted: {
+        _visualIndex = safeIndex
+        _ready = true
+    }
+
+    // Keep very short clicks and keyboard changes visible long enough to swell,
+    // then let the lens settle. A new selection restarts this pulse in place.
+    Timer {
+        id: releasePulse
+        interval: 140
+    }
 
     Timer {
         id: confirmationTimer
@@ -100,7 +126,24 @@ FocusScope {
         height: root.height - 4
         radius: height / 2
         backdrop: root.backdrop
-        coverage: 0.42
+        // Demo segmented lens: 1.12 press expansion with an OutBack return.
+        // Only the sampled lens deforms; labels and hit targets stay stationary.
+        scale: root.lensExpanded ? 1.12 : 1
+        Behavior on scale {
+            NumberAnimation {
+                duration: AppTheme.reduceMotion ? 0 : AppTheme.motionNormal
+                easing.type: Easing.OutBack
+                easing.overshoot: 1.4
+            }
+        }
+        coverage: root.lensExpanded ? 0.06 : 0.80
+        refractionStrength: root.lensExpanded ? 4.5 : 3
+        magnification: root.lensExpanded ? 1.045 : 1.025
+        reflectionStrength: root.lensExpanded || hovered || focused ? 0.72 : 0.50
+        Behavior on coverage { NumberAnimation { duration: AppTheme.motionFast } }
+        Behavior on refractionStrength { NumberAnimation { duration: AppTheme.motionFast } }
+        Behavior on magnification { NumberAnimation { duration: AppTheme.motionFast } }
+        Behavior on reflectionStrength { NumberAnimation { duration: AppTheme.motionFast } }
         fallbackColor: root.selectionColor
         hovered: hover.hovered
         pressed: root._pressedIndex >= 0
@@ -183,7 +226,7 @@ FocusScope {
                     segmentDelegate.forceActiveFocus()
                     root._pressedIndex = segmentDelegate.index
                 }
-                onCanceled: root._pressedIndex = -1
+                onCanceled: root.resetPress()
                 onReleased: root._pressedIndex = -1
                 onClicked: root.select(segmentDelegate.index)
             }

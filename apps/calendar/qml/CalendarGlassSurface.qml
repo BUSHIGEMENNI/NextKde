@@ -11,6 +11,9 @@ Item {
     property bool pressed: false
     property bool focused: false
     property real coverage: 0.18
+    property real refractionStrength: 1.5
+    property real magnification: 1.012
+    property real reflectionStrength: hovered || focused ? 0.36 : 0.28
     property color fallbackColor: design.controlFill
     readonly property bool sampling: glass.sampling && !AppTheme.reduceTransparency
     CalendarStyle { id: design }
@@ -25,9 +28,9 @@ Item {
         fullHighlight: true
         tintColor: AppTheme.dark ? "#1F1F22" : "#FFFFFF"
         tintStrength: Math.min(1, root.coverage + (root.pressed ? 0.10 : root.hovered ? 0.04 : 0))
-        refractionStrength: 1.5
-        magnification: 1.012
-        reflectionStrength: root.hovered || root.focused ? 0.36 : 0.28
+        refractionStrength: root.refractionStrength
+        magnification: root.magnification
+        reflectionStrength: root.reflectionStrength
         blurStrength: 0.45
         readability: 0
         edgeWidth: Math.min(12, height / 2)
