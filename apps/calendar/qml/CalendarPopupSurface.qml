@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Window
 import QtQuick.Effects
 import Kos.Ui
+import Kos.Demo as Demo
 
 // One glass panel; ordinary menu/option rows stay outside this background.
 CalendarGlassSurface {
@@ -45,11 +46,10 @@ CalendarGlassSurface {
             }
         }
     }
-    LiquidBackdrop {
+    Demo.LiquidBackdrop {
         id: panelCapture
         registerAsDefault: false
         sourceItem: blurredScene
         active: root.captureEnabled
-        live: true
     }
 }
