@@ -9,7 +9,7 @@ CalendarGlassSurface {
     readonly property var hostWindow: root.Window.window
     property Item scene: hostWindow ? hostWindow.calendarScene : null
     readonly property bool captureEnabled: visible && scene !== null
-        && !AppTheme.reduceTransparency && GraphicsInfo.api !== GraphicsInfo.Software
+        && liquidEnabled && GraphicsInfo.api !== GraphicsInfo.Software
     property point sceneOrigin: Qt.point(0, 0)
     radius: 12
     coverage: 0.7
