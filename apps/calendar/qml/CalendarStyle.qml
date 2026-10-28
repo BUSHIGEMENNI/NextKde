@@ -18,7 +18,7 @@ QtObject {
     readonly property color rowHoverFill: AppTheme.dark ? "#363639" : "#DBDBDD"
     readonly property color searchFill: controlFill
     readonly property color segmentTrack: controlFill
-    readonly property color segmentPill: AppTheme.dark ? "#636368" : "#FFFFFF"
+    readonly property color segmentPill: AppTheme.dark ? "#636363" : "#D1D1D1"
     readonly property color positive: "#34C759"
     readonly property color warning: "#FF9F0A"
     readonly property color statusPositive: AppTheme.dark ? "#34C759" : "#24883D"

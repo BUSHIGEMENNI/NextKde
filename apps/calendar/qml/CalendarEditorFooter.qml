@@ -21,16 +21,8 @@ Item {
         if (confirmingDelete) Qt.callLater(function() { confirmCancel.forceActiveFocus() })
         else Qt.callLater(function() { cancelButton.forceActiveFocus() })
     }
-    DialogButtonBox {
-        id: labels
-        visible: false
-        enabled: false
-        standardButtons: Dialog.Save | Dialog.Cancel
-    }
-    readonly property string saveText: labels.count > 0 && labels.standardButton(Dialog.Save)
-        ? labels.standardButton(Dialog.Save).text : qsTr("Save")
-    readonly property string cancelText: labels.count > 0 && labels.standardButton(Dialog.Cancel)
-        ? labels.standardButton(Dialog.Cancel).text : qsTr("Cancel")
+    readonly property string saveText: qsTr("Save")
+    readonly property string cancelText: qsTr("Cancel")
     RowLayout {
         id: actions
         anchors.left: parent.left
@@ -47,7 +39,7 @@ Item {
         }
         Item { Layout.fillWidth: true }
         CalendarButton { id: cancelButton; text: footer.cancelText; onClicked: footer.rejected() }
-        CalendarButton { text: footer.saveText; highlighted: true; onClicked: footer.accepted() }
+        CalendarButton { objectName: "editorSave"; text: footer.saveText; highlighted: true; onClicked: footer.accepted() }
     }
     ColumnLayout {
         id: confirmation
