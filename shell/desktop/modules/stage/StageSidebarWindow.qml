@@ -876,6 +876,9 @@ PanelWindow {
     function _exitDeskReveal() {
         deskCollectedIds = []
         deskCollectedFocusId = ""
+        // 审查修复：batch 不清＝15s 内桌面再度无窗时 revival 分支把整批
+        // 放回，违反"点卡退出后下次点桌面不再整组放出"的承诺
+        _deskCollectBatch = null
     }
 
     function _collectDesktopToStrip(recordSet) {
@@ -1191,7 +1194,10 @@ PanelWindow {
                     fanHoverSpread: p.fanHoverSpread,
                     cardTint: p.cardTint, cardBorder: p.cardBorder,
                     cardTopLight: p.cardTopLight,
-                    cardOpacity: p.cardOpacity !== undefined ? p.cardOpacity : 1.0 })
+                    //（上游收敛时把配置→载荷的透传断了：pose 不带 cardOpacity
+                    // 恒落 1.0，特效侧乘子干等——fallback 改读配置键修活）
+                    cardOpacity: p.cardOpacity !== undefined
+                        ? p.cardOpacity : StageConfigService.cardOpacity })
             }
         }
         // ⚠️ 载荷去重：桥事件风暴（缩略图等高频事件驱动 syncCards→
@@ -3160,12 +3166,18 @@ PanelWindow {
     // 一次重建——用滑动窗口上限防"重建→图未就绪→再重建"活锁（实测 Edge
     // 合并卡曾一分钟触发 400 次）。5s 内同键最多 3 次。
     property var _faceHealLog: ({})
+    // 审查修复：键含瞬态 pid 组键只增不减——比照 _groupFocusMemory 封顶
+    function _pruneFaceHealMaps() {
+        if (Object.keys(_faceHealLog).length > 128) _faceHealLog = ({})
+        if (Object.keys(_faceHealedUrl).length > 128) _faceHealedUrl = ({})
+    }
     // 同一张缩略图（URL 未变）只重建一次。重建出来的委托首次曝光时图还在
     // Loading（faceExposed 早于图就绪），会再记一次空脸 → Ready 再重建：
     // 实测一次收编连刷 3 轮、每轮 120ms，整列跟着合拢再张开（"卡卡的"
     // 的直接来源）。URL 没变＝图已在缓存里，新层首帧画得出来，无需再建。
     property var _faceHealedUrl: ({})
     function requestCardFaceHeal(appKey) {
+        _pruneFaceHealMaps()
         if (appKey === "")
             return
         let url = ""
