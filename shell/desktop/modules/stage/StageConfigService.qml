@@ -72,6 +72,9 @@ QtObject {
         // 旧的 2° 是"微倾"的误读：在 2200 焦距下视觉斜率 <0.2°，等于没歪
         "deckRestTilt": { type: "real", min: 0, max: 40, def: 40 },
         "tiltAngle":    { type: "real", min: 0, max: 40, def: 0 },
+        // 悬停回正角：悬停时倾角从静置值往 0° 方向回正的度数
+        //（0=悬停保持静置角=旧行为；tiltAngle=25 回正 10 → 悬停 15°）
+        "hoverFlatten": { type: "real", min: 0, max: 40, def: 0 },
         // 玻璃质感（StageCard 卡面：背板/受光/描边/辉光/纵深）
         "cardRadius":   { type: "int", min: 0, max: 24, def: 6 },
         "cardTint":     { type: "real", min: 0.2, max: 0.95, def: 0.35 },
@@ -169,6 +172,7 @@ QtObject {
     // 40 = 特效侧 std::clamp 上限，超过会让 depth>focal 顶点镜像炸裂）
     property real deckRestTilt: 40
     property real tiltAngle: 0
+    property real hoverFlatten: 0
     // 卡面玻璃质感：背板浓度（悬停自动 ×1.3 提亮）/ 顶部受光 / 静置描边
     // 亮度 / 聚焦辉光强度
     // 2026-10-18 结构轮：圆角按参考 7% 卡宽，128 宽取 9

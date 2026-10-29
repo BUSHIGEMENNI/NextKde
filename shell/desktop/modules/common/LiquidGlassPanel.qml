@@ -39,9 +39,15 @@ Item {
     property string readability: "inherit"
     readonly property string _effectiveReadability: readability === "inherit" ? scrimLevel : readability
     readonly property bool continuousBlurSupported: surfaceRegion.continuousBlurSupported
+    // The user's blur slider is the master gain: a surface may ask for a
+    // relative amount (blurSigma in logical px, or blurStrength 0..1 for the
+    // legacy level path), but 0% must mean "no blur" for every surface. Without
+    // this factor, per-surface floors (the launcher's Math.max(6, ...), the
+    // dialog's 0.3) kept a hard blur even at 0%.
     readonly property real effectiveBlurSigma: Math.max(0, Math.min(32,
-        blurSigma >= 0 ? blurSigma : 32 * (blurOverrideEnabled
-            ? blurStrength : AppearanceConfigService.globalBlurStrength)))
+        (blurSigma >= 0 ? blurSigma / 32
+            : (blurOverrideEnabled ? blurStrength : 1.0))
+        * 32 * AppearanceConfigService.globalBlurStrength))
 
     // ---- shape ----------------------------------------------------------
 
