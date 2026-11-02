@@ -379,6 +379,16 @@ DockWindowAnimationEffect::takePendingLaunchForWindow(EffectWindow *window)
 
 bool DockWindowAnimationEffect::claim(EffectWindow *window, int role)
 {
+    // erhai 2026-11-02: 台前调度共存门控——stageanim*（台前调度特效）加载期间
+    // 不认领任何窗口动画：其收编/交棒卡片动画独占最小化路径，神灯只在台前
+    // 调度关闭（stageanim 未加载）时接管。动机：切换台前调度时的动态
+    // unloadEffect 在本机 KWin 上卸载不彻底（残魂连接继续变形窗口，污染卡片
+    // 动画）；本门控让神灯即使残留加载也无法认领，动态装卸失败被无害化。
+    const QStringList loadedEffectNames = effects->loadedEffects();
+    for (const QString &effectName : loadedEffectNames) {
+        if (effectName.startsWith(QLatin1String("stageanim")))
+            return false;
+    }
     const QVariant currentOwner = window->data(role);
     const QVariant mine = ownerVariant(this);
     if (currentOwner.isValid() && currentOwner != mine)
