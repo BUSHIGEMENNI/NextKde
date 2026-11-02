@@ -128,10 +128,13 @@ QtObject {
         }
     }
 
-    // 针对用户在 KDE 系统设置中仅调整优先级而不插拔屏幕的情况，设置 2s 轮询检测；
+    // 针对用户在 KDE 系统设置中仅调整优先级而不插拔屏幕的情况，轮询检测；
     // 并在输出异常丢失（!outputAvailable）时自动触发 refresh() 自愈逃生。
+    // 2026-11-02: interval 2000→10000。2s 轮询经 daemon(display.outputs.get,
+    // 缓存 TTL 1s 恒过期)每 2s spawn 一次 kscreen-doctor，实测把 KWin 合成
+    // pageflip 卡 20-45ms（每 2 秒一顿）。优先级变更感知延迟放宽到 ≤10s。
     property Timer outputPollTimer: Timer {
-        interval: 2000
+        interval: 10000
         running: true
         repeat: true
         onTriggered: {
