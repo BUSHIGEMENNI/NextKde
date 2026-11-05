@@ -21,7 +21,7 @@ QtObject {
 
     // Plugin id matches the installed CMake target and metadata.
     //（跨版本保持稳定 id：正常 KWin 特效靠同 Id 替换升级，避免新旧双绘）
-    readonly property string effectId: "stageanim13"
+    readonly property string effectId: "stageanim23"
 
     // 显示桌面开关：DeskCenter 空区左键 → 台前侧栏收编/放出来回切换。
     // 走单例信号：DeskCenter 与侧栏分属两个模块，这是它们之间唯一的
