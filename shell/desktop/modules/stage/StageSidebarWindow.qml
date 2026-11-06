@@ -31,7 +31,11 @@ PanelWindow {
     // 相交时窗口压在卡片上（台前调度在普通窗之下、桌面组件之上）。
     // Bottom → KWin 的 BelowLayer：正常窗（NormalLayer）恒在其上。
     // 桌面层序脚本固定壁纸 < DeskCenter < 本窗，不依赖映射先后。
-    WlrLayershell.layer: WlrLayer.Bottom
+    // ⚠️ 收起态贴缘 peek 例外（2026-11-06）：全屏侵占场景下卡片若留在
+    // Bottom 层，拉出也被最大化窗口盖住＝唤了个寂寞——peek 瞬间临时提
+    // Top（wlr-layer-shell 原生支持运行时 set_layer，Quickshell 官方
+    // 背书动态设层），unpeek/点卡后回 Bottom，平时相交语义原样保留。
+    WlrLayershell.layer: root._stageTop ? WlrLayer.Top : WlrLayer.Bottom
     // KWin 桌面层序脚本通过类型与键盘模式识别：本窗 Normal + None，
     // DeskCenter Desktop + OnDemand，壁纸 Desktop + None。
     // 改动此处需同步 kwin/window-bridge.js。
@@ -2663,6 +2667,11 @@ PanelWindow {
         return false
     }
     property bool _drawerPeek: false   // 收起态贴缘悬停＝拉出（可交互）
+    // peek 提层判定：仅收起场景（全屏/侵占让位）的 peek 需要 Top——平时
+    // 展开态维持 Bottom（2026-10-18 相交语义）。点卡 engage 后窗口让位/
+    // overlap 回落 → yield 解除 → 自然回 Bottom。
+    readonly property bool _stageTop: root.open && root._drawerPeek
+        && (root.desktopFullscreen || root._stripYield)
     property real _retractPx: 0        // 0=展开；收起时动画到 _retractFull
     // 滑出距离：列原点偏移 + 列宽 + 两侧辉光余量（stripMargin 调大时列
     // 离屏缘更远，滑出距离必须同步加长，否则收起态卡片仍露在屏上）
@@ -3692,6 +3701,38 @@ PanelWindow {
     HoverHandler {
         id: drawerEdgeHover
         blocking: false
+    }
+    // 桥侧贴缘唤出（context-menu-input spy）：Bottom 层时被普通窗覆盖的
+    // 缘条区域 QML hover 永远收不到（A/B 实测 3/3 复现），compositor 内
+    // 的 spy 是唯一穿透源。peek 提层（见 _stageTop）后 QML hover 恢复
+    // 工作并接管保持判定——桥报 leave 时若指针仍在窗内（卡列上）不收。
+    Connections {
+        target: WindowService
+        function onStageEdgeHovered(inside, x, y) {
+            root._bridgeEdgeHover(inside, x, y)
+        }
+    }
+    function _bridgeEdgeHover(inside, px, py) {
+        // side 过滤：桥报两侧缘条，本侧栏只认自己那侧（12px 同 _drawerEdgeHotAt）
+        const inMine = root.rightSide ? px >= root.width - 12 : px < 12
+        if (!inMine)
+            return
+        // dock 带过滤（同 _updateHitRegionExtent 收起态热区：不伸进 dock）
+        const dockGuard = ConfigService.position === "bottom"
+            ? root.height - (ConfigService.baseHeight + 24) : root.height
+        if (py >= dockGuard)
+            return
+        if (inside && (root.drawerRetracted || root._drawerPeek)) {
+            root._drawerUnpeekTimer.stop()
+            root._drawerPeekTimer.restart()
+        } else if (!inside && !root._stageTop && !drawerEdgeHover.hovered) {
+            // 提层后桥的 leave 到达早于 QML hover 接管（提层+投递时延），
+            // 此时若照单全收会把刚拉出的抽屉立刻收回——提层期间保持判定
+            // 全权交 QML hover（peek 态热区=整条卡列，on_DrawerEdgeHotChanged
+            // 自带进出边沿），桥只负责 Bottom 层时的"那一脚"。
+            root._drawerPeekTimer.stop()
+            root._drawerUnpeekTimer.restart()
+        }
     }
     function _drawerEdgeHotAt(px: real): bool {
         const w = root._drawerPeek

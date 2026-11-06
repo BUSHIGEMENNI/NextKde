@@ -25,6 +25,7 @@
 #include <chrono>
 #include <optional>
 #include <cmath>
+#include <algorithm>
 
 #include <xkbcommon/xkbcommon-keysyms.h>
 
@@ -61,8 +62,30 @@ public:
             m_effect->handlePointerPress(event->position, event->button);
     }
 
+    // 台前调度贴缘唤出的输入源：普通窗（NormalLayer）恒压在 Bottom 层
+    // 侧栏窗上，最大化窗口盖住屏缘 12px 热区时 QML hover 永远收不到
+    // 事件——compositor 内的 spy 是唯一穿透源。只报进出翻转，motion
+    // 洪水不外发（热区 12px 与 shell 侧 _drawerEdgeHotAt 同值互指）。
+    // ⚠️ 单屏假设：virtualScreenSize 是虚拟屏总宽，多屏下外屏内缘会被
+    // 误判（本机单屏平板，留待多屏需求出现再按屏拆）。
+    void pointerMotion(PointerMotionEvent *event) override
+    {
+        if (!event)
+            return;
+        const qreal screenW = effects ? effects->virtualScreenSize().width() : 0;
+        if (screenW <= 0)
+            return;
+        const bool inside = event->position.x() < 12
+            || event->position.x() >= screenW - 12;
+        if (inside == m_edgeInside)
+            return;
+        m_edgeInside = inside;
+        m_effect->handleEdgeHover(inside, event->position);
+    }
+
 private:
     ContextMenuInputEffect *m_effect;
+    bool m_edgeInside = false;
 };
 
 ContextMenuInputEffect::ContextMenuInputEffect()
@@ -222,6 +245,27 @@ void ContextMenuInputEffect::handlePointerPress(const QPointF &position,
         {QStringLiteral("x"), position.x()},
         {QStringLiteral("y"), position.y()},
         {QStringLiteral("button"), static_cast<int>(button)},
+        {QStringLiteral("timestamp"), QDateTime::currentMSecsSinceEpoch()},
+    };
+    publish(eventData);
+}
+
+void ContextMenuInputEffect::handleEdgeHover(bool inside, const QPointF &position)
+{
+    // 台前调度模式关（stageanim* 未加载）时静默——避免常驻无谓事件
+    if (!effects)
+        return;
+    const QStringList loaded = effects->loadedEffects();
+    const bool stageLoaded = std::any_of(loaded.cbegin(), loaded.cend(),
+        [](const QString &name) { return name.startsWith(QLatin1String("stageanim")); });
+    if (!stageLoaded)
+        return;
+
+    const QJsonObject eventData{
+        {QStringLiteral("type"), QStringLiteral("stage-edge-hover")},
+        {QStringLiteral("inside"), inside},
+        {QStringLiteral("x"), position.x()},
+        {QStringLiteral("y"), position.y()},
         {QStringLiteral("timestamp"), QDateTime::currentMSecsSinceEpoch()},
     };
     publish(eventData);

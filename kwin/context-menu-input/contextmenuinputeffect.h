@@ -41,6 +41,11 @@ private:
     friend class ContextMenuPointerSpy;
 
     void handlePointerPress(const QPointF &position, Qt::MouseButton button);
+    // 台前调度贴缘唤出：spy 检测到指针进出 12px 屏缘热区（进出翻转才发，
+    // 非 motion 流）时调用。Bottom 层的侧栏窗收不到被普通窗覆盖区域的
+    // hover——compositor 内的 spy 是唯一穿透源。仅在 stageanim* 加载
+    // （台前调度模式开）时对外发布。
+    void handleEdgeHover(bool inside, const QPointF &position);
     void installPointerSpy();
     void publish(const QJsonObject &eventData);
 

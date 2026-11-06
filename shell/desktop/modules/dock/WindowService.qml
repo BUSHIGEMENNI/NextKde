@@ -39,6 +39,11 @@ QtObject {
     // dismissal; the event itself is never consumed by KWin.
     signal globalPointerPressed(real x, real y, int button, real timestamp)
 
+    // 台前调度贴缘唤出（context-menu-input spy 上报）：指针进出 12px 屏缘
+    // 热区的翻转事件。Bottom 层的侧栏窗收不到被普通窗覆盖区域的 hover，
+    // 这是唯一穿透源；inside/outside 语义见 stage 侧 _bridgeEdgeHover。
+    signal stageEdgeHovered(bool inside, real x, real y)
+
     // Activation requested by this process (dock icon/preview/menu click):
     // emitted the instant the click happens, before the bridge command is
     // queued. Stage's sidebar uses it to run the simultaneous swap without
@@ -109,6 +114,7 @@ QtObject {
             if (eventName === "window.snapshot" || eventName === "desktops"
                     || eventName === "thumbnail"
                     || eventName === "global-pointer-press"
+                    || eventName === "stage-edge-hover"
                     || eventName === "window.action")
                 svc._consumeKwinEvent(payload)
         }
@@ -1047,6 +1053,9 @@ QtObject {
                         svc.globalPointerPressed(Number(event.x), Number(event.y),
                                                  Number(event.button),
                                                  Number(event.timestamp));
+                } else if (event.type === "stage-edge-hover") {
+                        svc.stageEdgeHovered(Boolean(event.inside),
+                                             Number(event.x), Number(event.y));
                 }
             } catch (e) {
                 console.warn("[WindowService] invalid KWin event: " + e);
