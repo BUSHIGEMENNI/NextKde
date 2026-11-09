@@ -656,6 +656,59 @@ QtObject {
         return _recordsById[String(windowId)] ?? null;
     }
 
+    // ── erhai-focus: cgroup CPU 焦点调度（App Nap 式后台让路）──
+    // 语义：新焦点窗口进程树→focus 组(cpu.weight=500)，失焦树→nap 组(cpu.idle)。
+    // 桌面表面(activeDesktop)不动；同 pid 窗口间切换不动；进程级白名单在
+    // ~/bin/erhai-focus 内兜底（桌面/音频组件硬排除）。失败静默，日志进
+    // journal(logger -t erhai-focus)。Process 必须走 Component 工厂
+    // （QtObject 无默认属性，直挂子对象会 crash-loop，见 StageModeService）。
+    property Component _focusCmdFactory: Component {
+        Process { stdout: StdioCollector {} }
+    }
+
+    function _spawnErhaiFocus(mode, pid) {
+        if (!(pid > 0))
+            return;
+        const proc = svc._focusCmdFactory.createObject(svc, {
+            command: ["/bin/bash", "-c",
+                "$HOME/bin/erhai-focus " + mode + " " + pid + " 2>&1 | logger -t erhai-focus || true"]
+        });
+        proc.exited.connect(function() { proc.destroy(); });
+        proc.running = true;
+    }
+
+    // KWin 快照直查 pid（record 走 foreign toplevel 时 pid 恒 0，不可用）
+    function _kwinPidByWindowId(id) {
+        if (!id)
+            return 0;
+        const ws = svc._kwinWindows || [];
+        for (let i = 0; i < ws.length; i++) {
+            if (String(ws[i] && ws[i].id) === String(id))
+                return Number(ws[i].pid || 0);
+        }
+        return 0;
+    }
+
+    function _applyFocusPolicy(prevId, newId) {
+        try {
+            const prevPid = _kwinPidByWindowId(prevId);
+            const newPid = _kwinPidByWindowId(newId);
+            console.debug("[WindowService] erhai-focus policy: prev=" + (prevId || "''")
+                + " new=" + (newId || "''") + " desktop=" + svc.kwinActiveDesktop
+                + " prevPid=" + prevPid + " newPid=" + newPid);
+            if (svc.kwinActiveDesktop)
+                return;                      // 焦点在桌面表面：保持现状
+            if (!prevId || prevId === newId)
+                return;                      // 初始快照/未变化
+            if (prevPid > 0 && prevPid !== newPid)
+                svc._spawnErhaiFocus("nap", prevPid);
+            if (newPid > 0)
+                svc._spawnErhaiFocus("focus", newPid);
+        } catch (e) {
+            console.warn("[WindowService] erhai-focus 调度失败:", e);
+        }
+    }
+
     function windowsForApp(desktopId) {
         const result = [];
         for (let i = 0; i < records.length; i++) {
@@ -994,6 +1047,7 @@ QtObject {
                         // Keep activation direct. Virtual-desktop transient
                         // filtering is handled separately; delaying this
                         // authoritative list also delayed focus changes.
+                        const _prevActiveId = svc.kwinActiveId; // erhai-focus: 旧焦点捕获
                         svc.kwinActiveId = String(event.activeId ?? "");
                         svc.kwinActiveDesktop = !!event.activeDesktop;
                         svc._kwinWindows = windows;
@@ -1008,6 +1062,8 @@ QtObject {
                         // collision edges and can itself be restarted by motion.
                         svc._updateTimer.stop();
                         svc._rebuild();
+                        // erhai-focus: CPU 焦点调度（App Nap 式后台让路）
+                        svc._applyFocusPolicy(_prevActiveId, svc.kwinActiveId);
                 } else if (event.type === "thumbnail" && event.id) {
                         const pending = Object.assign({}, svc._thumbnailPendingByHandle);
                         delete pending[event.id];
