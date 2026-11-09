@@ -235,6 +235,18 @@ G_MODULE_EXPORT void gtk_module_init(gint *argc, gchar ***argv) {
     static gboolean initialized;
     if (initialized) return;
     initialized = TRUE;
+    // 会话门禁（2026-11-09）：红绿灯槽位协议由 KOS shell 提供，GTK 合作
+    // 控件只在 KOS 会话生效。settings.ini 的 gtk-modules 是全局静态配置
+    // 无法按桌面条件化——GNOME 等他人桌面下 module 虽被加载但不激活：
+    // 不注册 hook、不连 Wayland，应用窗口零改动。只在已知他人桌面禁用，
+    // 空值/KOS/未知一律激活（KOS 会话可不设该变量）。
+    const char *sessionDesktop = g_getenv("XDG_CURRENT_DESKTOP");
+    if (sessionDesktop
+            && (strstr(sessionDesktop, "GNOME") != NULL
+                || strstr(sessionDesktop, "ubuntu") != NULL)) {
+        g_debug("kos window controls disabled on desktop=%s", sessionDesktop);
+        return;
+    }
     GdkDisplay *display = gdk_display_get_default();
     g_debug("module initialized; display=%s", display ? G_OBJECT_TYPE_NAME(display) : "none");
     if (GDK_IS_WAYLAND_DISPLAY(display)) {
