@@ -689,7 +689,28 @@ QtObject {
         return 0;
     }
 
+    // 焦点事件防抖：台前调度动画/engage 会连发 snapshot，120ms 合并成一次调度。
+    // ⚠️ QtObject 单例根无默认属性，Timer 直挂＝类型链崩死 crash-loop
+    //（同 Process 的坑，见 _focusCmdFactory 头注释）——必须走 Component 工厂。
+    property string _pendPrev: ""
+    property string _pendNew: ""
+    property Component _focusDebounceFactory: Component {
+        Timer {
+            interval: 120
+            onTriggered: svc._applyFocusPolicyNow(svc._pendPrev, svc._pendNew)
+        }
+    }
+    property Timer _focusDebounce: null
+
     function _applyFocusPolicy(prevId, newId) {
+        svc._pendPrev = prevId;
+        svc._pendNew = newId;
+        if (!svc._focusDebounce)
+            svc._focusDebounce = svc._focusDebounceFactory.createObject(svc);
+        svc._focusDebounce.restart();
+    }
+
+    function _applyFocusPolicyNow(prevId, newId) {
         try {
             const prevPid = _kwinPidByWindowId(prevId);
             const newPid = _kwinPidByWindowId(newId);
