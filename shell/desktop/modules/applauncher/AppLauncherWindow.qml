@@ -227,7 +227,10 @@ PanelWindow {
         onTriggered: {
             // Keep the current model throughout either transition. Completion
             // or hiding will reschedule a dirty catalog after it settles.
-            if (root.panelVisible && !popupMotion.settledOpen)
+            // settledOpen 不再等瓦片动画（交互提前放行），瓦片动画中重建
+            // model 会整列换血打断飞行——改按 pendingIcons 记账判断。
+            if (root.panelVisible
+                    && (!popupMotion.settledOpen || popupMotion.pendingIcons !== 0))
                 return;
             if (root.applicationsDirty)
                 root.rebuildApplications();
@@ -1610,6 +1613,13 @@ PanelWindow {
                         GridView {
                             id: appGrid
                             enabled: root.editingApplication === null
+                            // 2026-11-09 滑动卡顿：委托无复用时滚动=全量销毁重建
+                            //（每笔含 AppIcon 同步解码，GUI 线程逐帧阻塞）。复用
+                            // 池 + 适度预创建缓冲；复用靠 model 驱动刷新图标，
+                            // motion 的 counted 状态在 onVisibleChanged snap 路径
+                            // 已有收尾，无泄漏。
+                            reuseItems: true
+                            cacheBuffer: 600
                             // Never switch between mutually exclusive anchor
                             // sets at runtime. Qt can retain both for one frame
                             // and reports an anchor conflict, leaving the grid's

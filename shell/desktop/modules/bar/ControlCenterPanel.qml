@@ -532,10 +532,11 @@ PopupWindow {
             panel.submenuOpen = false
             panel.activeSubmenu = ""
             panel.pendingConfirmAction = ""
-            if (panel.anchorSettled)
-                coordinator.openAll()
-            else
-                panel.pendingOpen = true
+            // 2026-11-09 点击即开：不再等 Bar 回弹（原先 anchorSettled=false
+            // 时只挂 pendingOpen 干等，实测固定吃 180-350ms、最坏 700ms 兜底）。
+            // layer-shell popup 锚定父窗，Bar 回弹时面板跟随滑入——视觉是
+            // "面板随顶栏一起弹出"。pendingOpen 机制保留给非点击路径。
+            coordinator.openAll()
         }
     }
 

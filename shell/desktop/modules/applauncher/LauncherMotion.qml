@@ -56,7 +56,12 @@ Item {
         finishIfSettled();
     }
     function finishIfSettled() {
-        if (changing || !glassFinished || pendingIcons !== 0)
+        // 玻璃落定即可交互（2026-11-09 实测：等全部 71 瓦片 300ms 姿态动画
+        // 落定＝打开→可交互 634ms 的结构性锁）。瓦片动画继续跑，视觉不变；
+        // 瓦片飞行中的命中区域跟 Binding 后的视觉位置走，无点击偏差。
+        // pendingIcons 仍由 iconStarted/Finished 记账，供目录重建等时序
+        // 判断（AppLauncherWindow applicationCatalogRefresh）使用。
+        if (changing || !glassFinished)
             return;
         settledOpen = requestedOpen;
         if (!requestedOpen) mapped = false;
