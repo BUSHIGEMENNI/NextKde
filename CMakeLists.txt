@@ -949,7 +949,7 @@ if(KOS_BUILD_KWIN_PLUGINS)
             add_test(NAME kos-stage.static-desktop-compositor
                 COMMAND ${KOS_PYTHON_EXECUTABLE}
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/stage-visibility/static_compositor.py
-                    $<TARGET_FILE:stageanim13>
+                    $<TARGET_FILE:stageanim23>
                     --quickshell ${KOS_STAGE_QUICKSHELL_EXECUTABLE}
                     --output ${CMAKE_BINARY_DIR}/stage-static-compositor)
             set_tests_properties(kos-stage.static-desktop-compositor PROPERTIES LABELS ui TIMEOUT 40)
