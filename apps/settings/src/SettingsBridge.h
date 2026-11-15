@@ -43,9 +43,11 @@ public:
     Q_INVOKABLE void revealWallpaperImage(const QString& urlOrPath);
     Q_INVOKABLE void chooseWallpaperImage(const QString& urlOrPath);
     Q_INVOKABLE void previewWallpaperImage(const QString& urlOrPath, const QStringList& images);
-    Q_INVOKABLE QString wallpaperColorImage(const QString& start, const QString& end, int angle);
+    Q_INVOKABLE QString wallpaperColorImage(const QString& start, const QString& end, int angle,
+        const QStringList& colors = QStringList());
     Q_INVOKABLE void chooseWallpaperColor(const QString& hex);
-    Q_INVOKABLE void chooseWallpaperGradient(const QString& start, const QString& end, int angle);
+    Q_INVOKABLE void chooseWallpaperGradient(const QString& start, const QString& end, int angle,
+        const QStringList& colors = QStringList());
     Q_INVOKABLE QString wallpaperCustomColors();
     Q_INVOKABLE void saveWallpaperCustomColors(const QString& json);
     Q_INVOKABLE void pickWallpaperColor();
@@ -95,6 +97,7 @@ public:
     Q_INVOKABLE void updateGlassPresetParameter(const QString& name, double value);
     Q_INVOKABLE void resetGlassPreset(const QString& style);
     Q_INVOKABLE void fgSchedRunningApps();
+    Q_INVOKABLE QString applicationIcon(const QString& appId) const;
     Q_INVOKABLE void fgSchedSnapshot();
     Q_INVOKABLE void fgSchedSetFreeze(bool on);
     Q_INVOKABLE void fgSchedSetReclaim(const QString& mode);
@@ -118,7 +121,9 @@ public:
     Q_INVOKABLE void updateBarLayoutMode(const QString& mode);
     Q_INVOKABLE void updateBarMacStyle(bool enabled);
     Q_INVOKABLE void updateBarMacTint(double tint);
+    Q_INVOKABLE void updateStartupMotion(bool reduced, int duration);
     Q_INVOKABLE void updateDockWindowAnimationStyle(const QString& style);
+    Q_INVOKABLE void updateDesktopFontFamily(const QString& family);
     Q_INVOKABLE void resetAppearanceStrengths();
     Q_INVOKABLE void launcherSnapshot();
     Q_INVOKABLE void shortcutsSnapshot();
@@ -131,6 +136,8 @@ public:
     Q_INVOKABLE void resetLauncherLayoutProfile(const QString& mode);
     Q_INVOKABLE void applySystemAppearance(bool dark);
     Q_INVOKABLE void integrationSnapshot();
+    Q_INVOKABLE void setInputMethodEnabled(bool enabled);
+    Q_INVOKABLE void setInputMethodPresentation(const QVariantMap& patch);
     Q_INVOKABLE void i18nSnapshot();
     Q_INVOKABLE void updateLanguage(const QString& language);
 

@@ -1,3 +1,7 @@
+if(NOT TARGET kos_icons)
+    add_subdirectory(../Icons ${CMAKE_CURRENT_BINARY_DIR}/kos-icons)
+endif()
+
 set_source_files_properties(
     foundation/AppTheme.qml
     i18n/I18n.qml
@@ -15,6 +19,10 @@ qt_add_qml_module(kos_ui
     QML_FILES
         i18n/I18n.qml
         foundation/AppTheme.qml
+        foundation/MotionTokens.qml
+        foundation/MotionSpring.qml
+        foundation/MotionSpring.mjs
+        foundation/SpringMotion.qml
         foundation/KosSidebar.qml
         foundation/KosSidebarToggle.qml
         foundation/KosSidebarGlyph.qml
@@ -54,6 +62,7 @@ qt_add_qml_module(kos_ui
         controls/LiquidCompactSurface.qml
         controls/SelectionHighlight.qml
     RESOURCES
+        foundation/qmldir
         foundation/KosCompositorControls.qml
         controls/shaders/liquid_number.vert.qsb
         controls/shaders/liquid_number.frag.qsb
@@ -80,6 +89,7 @@ add_library(Kos::Ui ALIAS kos_ui)
 add_library(Kos::UiPlugin ALIAS kos_ui_plugin)
 
 target_link_libraries(kos_ui PUBLIC
+    Kos::Icons Kos::IconsPlugin
     Qt6::Core
     Qt6::Gui
     Qt6::Qml

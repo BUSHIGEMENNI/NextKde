@@ -17,10 +17,13 @@ public:
     QString error() const { return m_error; }
     Q_INVOKABLE void refresh() { emit changed(); }
     Q_INVOKABLE bool setRadius(int radius);
+    Q_INVOKABLE bool setSquareMaximized(bool enabled);
     Q_INVOKABLE bool setShadow(bool enabled);
     Q_INVOKABLE bool setTakeover(bool enabled);
     bool setAnimation(const QString &kind, const QString &style);
     Q_INVOKABLE bool setButtonGlyphMode(const QString &mode);
+    Q_INVOKABLE bool setButtonExclusion(const QString &appClass, bool excluded);
+    Q_INVOKABLE bool setIndependentButtonBackground(bool enabled);
     bool installDefaults();
     bool restoreAnimationDefaults();
 signals:

@@ -24,6 +24,7 @@ AnimatedPopupWindow {
     implicitWidth: Math.max(root.minimumWidth, tooltipColumn.implicitWidth + 18)
     implicitHeight: tooltipColumn.implicitHeight + 12
     color: "transparent"
+    // motion-exception: retain near-instant tooltip fades (both directions).
     openDuration: 70
     closeDuration: 70
     mask: Region { item: null }
@@ -60,14 +61,14 @@ AnimatedPopupWindow {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.primaryText
                 color: tooltipSurface.foregroundColor
-                font { family: "Noto Sans CJK SC"; pixelSize: 12; weight: Font.DemiBold }
+                font { family: AppearanceTokens.typography.textFamily; pixelSize: 12; weight: Font.DemiBold }
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: root.secondaryText.length > 0
                 text: root.secondaryText
                 color: tooltipSurface.secondaryForegroundColor
-                font { family: "Noto Sans CJK SC"; pixelSize: 10; weight: Font.Medium }
+                font { family: AppearanceTokens.typography.textFamily; pixelSize: 10; weight: Font.Medium }
             }
         }
     }

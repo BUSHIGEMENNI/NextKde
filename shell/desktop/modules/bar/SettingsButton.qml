@@ -46,10 +46,11 @@ Item {
         anchors.centerIn: parent
         width: root.iconSize
         height: root.iconSize
-        name: "status-settings"
+        size: root.iconSize
+        name: "bar.settings"
         color: ThemeService.barInk
         scale: pointer.pressed ? 0.90 : pointer.containsMouse ? 1.06 : 1
-        Behavior on scale { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: AppearanceTokens.motion.enterCurve } }
     }
 
     MouseArea {

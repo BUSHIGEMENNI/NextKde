@@ -31,7 +31,7 @@ Liquid glass, a floating dock, and a workspace you can make your own.</p>
 
 NextKDE's desktop experience extends to a growing family of companion apps:
 Calendar (including tasks), Weather and Calculator are available as optional apps, while
-[KMusic](https://github.com/NextKde/KMusic) brings music into the mix. Mail and
+[KMusic](https://github.com/NextKde/NkMusic) brings music into the mix. Mail and
 File Manager are planned for the future.
 
 ![The NextKDE App Suite: Calendar, KMusic, and Weather in slim tablet frames](docs/images/apps-showcase.webp)
@@ -55,18 +55,23 @@ KWin, NetworkManager, PipeWire, BlueZ, and systemd.
 
 Calendar (including tasks), Calculator and Weather are available as
 [optional standalone applications](apps/README.md). `./tools/kosctl install apps`
-now uses signed GitHub Release Flatpak bundles, with no hosted NextKde app source.
-Signed distribution is not yet available,
-so new installations remain disabled. Legacy source builds require explicit
-`--backend=source`. ListenFree requires an explicit
-`./tools/kosctl install apps --with-listenfree`;
-see the [application installation guide](docs/GettingStarted.md#optional-standalone-applications).
+uses GitHub Release Flatpak bundles. The catalog integration adds signed,
+updatable application lists, third-party sources and automatic update notifications;
+package SHA-256 is required and developer signatures are optional. Availability
+requires a compatible client and an actual application Release. See the
+[signed catalog guide](docs/app-store/SignedCatalog.md) and
+[submit an application / Qt runtime guidance](https://github.com/NextKde/appCatalog).
+Legacy source builds require explicit `--backend=source`; ListenFree requires
+`./tools/kosctl install apps --with-listenfree`.
 
 ## Get started
 
 Use a **KDE Plasma 6 Wayland** session with **KWin 6.6+**, **Quickshell 0.3.x**,
 and **Qt 6.6+**. Installation builds the platform service, Settings, KWin effects,
 and window decoration.
+
+The integrated font settings support Plasma **6.6–6.8**; see the
+[version coverage and validation limits](docs/AppearanceArchitecture.md#font-backend-compatibility).
 
 ### 1. Prepare dependencies
 

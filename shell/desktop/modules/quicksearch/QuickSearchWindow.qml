@@ -35,8 +35,8 @@ PanelWindow {
     readonly property real revealProgress: popupMotion.progress
     PopupMotion {
         id: popupMotion
-        openDuration: 90
-        closeDuration: 90
+        openDuration: AppearanceTokens.motion.instant.duration
+        closeDuration: AppearanceTokens.motion.instant.duration
     }
 
     signal closeRequested
@@ -114,7 +114,7 @@ PanelWindow {
                     title: title,
                     subtitle: item.isImage ? I18n.tr("Pinned image · Enter to copy") : I18n.tr("Pinned text · Enter to copy"),
                     icon: BundledIcons.source(item.isImage
-                        ? "image-x-generic" : "edit-paste"),
+                        ? "clipboard.image" : "clipboard.text"),
                     isImage: item.isImage,
                     preview: item.preview,
                     selectionRecord: "",
@@ -137,7 +137,7 @@ PanelWindow {
                     title: entry.isImage ? I18n.tr("Image") : entry.preview,
                     subtitle: entry.isImage ? I18n.tr("Image clipboard · %1").arg(entry.preview.slice(2, -2).trim()) : I18n.tr("Text clipboard · Enter to copy"),
                     icon: BundledIcons.source(entry.isImage
-                        ? "image-x-generic" : "edit-paste"),
+                        ? "clipboard.image" : "clipboard.text"),
                     isImage: entry.isImage,
                     preview: entry.preview,
                     selectionRecord: entry.record,
@@ -185,6 +185,13 @@ PanelWindow {
     component ResultIcon: Item {
         id: resultIcon
         property string iconSource: ""
+        readonly property bool fontGlyph: iconSource.startsWith("kos-icon:")
+        BundledIcon {
+            anchors.fill: parent
+            visible: resultIcon.fontGlyph
+            name: resultIcon.fontGlyph ? resultIcon.iconSource.substring(9) : ""
+            color: ThemeService.foregroundColor
+        }
 
         // Color mode with no tint/desaturation renders the icon unchanged, so
         // draw it directly and skip the ShaderEffect pass entirely.
@@ -195,7 +202,7 @@ PanelWindow {
         IconImage {
             id: sourceImage
             anchors.fill: parent
-            source: resultIcon.iconSource
+            source: resultIcon.fontGlyph ? "" : resultIcon.iconSource
             smooth: true
             // Theme icon: synchronous, see AppIcon.qml.
             asynchronous: false
@@ -203,12 +210,12 @@ PanelWindow {
             // path, but leave the live ShaderEffect source uncached.
             backer.cache: !resultIcon.needsEffect
                 && IconThemeReloadService.pixmapCacheAllowed
-            visible: !resultIcon.needsEffect
+            visible: !resultIcon.fontGlyph && !resultIcon.needsEffect
         }
 
         ShaderEffect {
             anchors.fill: parent
-            visible: resultIcon.needsEffect
+            visible: !resultIcon.fontGlyph && resultIcon.needsEffect
             property variant source: sourceImage.backer
             property real opacityMult: IconAppearanceService.mode === "color"
                 ? 1.0 : IconAppearanceService.opacity
@@ -470,17 +477,17 @@ PanelWindow {
                 }
             }
 
-            GlassText {
+            BundledIcon {
                 anchors {
                     left: fieldPill.left
                     leftMargin: 14
                     verticalCenter: fieldPill.verticalCenter
                 }
-                text: "⌕"
+                name: "search.query"
                 color: AppearanceTokens.content.glassInk(0.72)
-                font.pixelSize: 20
-                style: ThemeService.isDark ? Text.Outline : Text.Normal
-                styleColor: dialog.textOutlineColor
+                size: 20
+                outlined: ThemeService.isDark
+                outlineColor: dialog.textOutlineColor
             }
 
             TextInput {
@@ -497,7 +504,7 @@ PanelWindow {
                 }
                 color: ThemeService.foregroundColor
                 font {
-                    family: "Noto Sans CJK SC"
+                    family: AppearanceTokens.typography.textFamily
                     pixelSize: 15
                 }
                 clip: true
@@ -692,15 +699,15 @@ PanelWindow {
                             : "transparent"
                     }
 
-                    GlassText {
+                    BundledIcon {
                         anchors.centerIn: parent
-                        text: "⚙"
+                        name: "search.settings"
                         color: root.clipboardSettingsOpen
                             ? (ThemeService.isDark ? "#64b5ff" : "#0066cc")
                             : AppearanceTokens.content.glassInk(0.70)
-                        font.pixelSize: 13
-                        style: ThemeService.isDark ? Text.Outline : Text.Normal
-                        styleColor: dialog.textOutlineColor
+                        size: 13
+                        outlined: ThemeService.isDark
+                        outlineColor: dialog.textOutlineColor
                     }
 
                     MouseArea {
@@ -723,14 +730,14 @@ PanelWindow {
                         color: viewToggle.containsMouse ? (ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.14) : Qt.rgba(0, 0, 0, 0.08)) : "transparent"
                     }
 
-                    GlassText {
+                    BundledIcon {
                         anchors.centerIn: parent
                         // The button advertises the layout selected by a click.
-                        text: root.viewMode === "list" ? "▦" : "☷"
+                        name: root.viewMode === "list" ? "search.view.grid" : "search.view.list"
                         color: AppearanceTokens.content.glassInk(0.76)
-                        font.pixelSize: 16
-                        style: ThemeService.isDark ? Text.Outline : Text.Normal
-                        styleColor: dialog.textOutlineColor
+                        size: 16
+                        outlined: ThemeService.isDark
+                        outlineColor: dialog.textOutlineColor
                     }
 
                     MouseArea {
@@ -752,7 +759,7 @@ PanelWindow {
             enabled: root.mode === "clipboard" && root.clipboardSettingsOpen
             scale: 0.96 + 0.04 * opacity
             transformOrigin: Item.TopRight
-            Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: Easing.OutCubic } }
+            Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: AppearanceTokens.motion.enterCurve } }
             z: 20
             width: 320
             height: settingsContent.implicitHeight + 24
@@ -805,19 +812,18 @@ PanelWindow {
                         width: parent.width - 24
                         elide: Text.ElideRight
                         text: I18n.tr("Clipboard Preferences")
-                        font { pixelSize: 13; bold: true; family: "Noto Sans CJK SC" }
+                        font { pixelSize: 13; bold: true; family: AppearanceTokens.typography.textFamily }
                         color: ThemeService.foregroundColor
                         style: ThemeService.isDark ? Text.Outline : Text.Normal
                         styleColor: dialog.textOutlineColor
                     }
-                    GlassText {
+                    BundledIcon {
                         width: 24
-                        horizontalAlignment: Text.AlignRight
-                        text: "×"
-                        font.pixelSize: 18
+                        name: "search.clearQuery"
+                        size: 18
                         color: AppearanceTokens.content.glassInk(0.60)
-                        style: ThemeService.isDark ? Text.Outline : Text.Normal
-                        styleColor: dialog.textOutlineColor
+                        outlined: ThemeService.isDark
+                        outlineColor: dialog.textOutlineColor
                         MouseArea {
                             anchors.fill: parent
                             anchors.margins: -4
@@ -845,7 +851,7 @@ PanelWindow {
                             width: parent.width
                             elide: Text.ElideRight
                             text: I18n.tr("Monitor image content")
-                            font { pixelSize: 12; weight: Font.Medium; family: "Noto Sans CJK SC" }
+                            font { pixelSize: 12; weight: Font.Medium; family: AppearanceTokens.typography.textFamily }
                             color: ThemeService.foregroundColor
                             style: ThemeService.isDark ? Text.Outline : Text.Normal
                             styleColor: dialog.textOutlineColor
@@ -869,7 +875,7 @@ PanelWindow {
                         color: ClipboardService.watchImages
                             ? "#34c759"
                             : (ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.16) : Qt.rgba(0, 0, 0, 0.15))
-                        Behavior on color { ColorAnimation { duration: 150 } }
+                        Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
                         Rectangle {
                             width: 18
@@ -877,7 +883,7 @@ PanelWindow {
                             radius: 9
                             anchors.verticalCenter: parent.verticalCenter
                             x: ClipboardService.watchImages ? parent.width - width - 2 : 2
-                            Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutQuad } }
+                            Behavior on x { NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
                             color: "#ffffff"
                         }
 
@@ -896,7 +902,7 @@ PanelWindow {
 
                     GlassText {
                         text: I18n.tr("History size")
-                        font { pixelSize: 12; weight: Font.Medium; family: "Noto Sans CJK SC" }
+                        font { pixelSize: 12; weight: Font.Medium; family: AppearanceTokens.typography.textFamily }
                         color: ThemeService.foregroundColor
                         style: ThemeService.isDark ? Text.Outline : Text.Normal
                         styleColor: dialog.textOutlineColor
@@ -968,17 +974,16 @@ PanelWindow {
                             anchors.verticalCenter: parent.verticalCenter
                             elide: Text.ElideRight
                             text: I18n.tr("⌨ Configure global shortcut (Meta+V)")
-                            font { pixelSize: 11; family: "Noto Sans CJK SC" }
+                            font { pixelSize: 11; family: AppearanceTokens.typography.textFamily }
                             color: ThemeService.foregroundColor
                             style: ThemeService.isDark ? Text.Outline : Text.Normal
                             styleColor: dialog.textOutlineColor
                         }
-                        GlassText {
+                        BundledIcon {
                             width: 20
-                            horizontalAlignment: Text.AlignRight
                             anchors.verticalCenter: parent.verticalCenter
-                            text: "›"
-                            font.pixelSize: 16
+                            name: "search.showAll"
+                            size: 16
                         color: AppearanceTokens.content.glassInk(0.40)
                         }
                     }
@@ -1185,7 +1190,7 @@ PanelWindow {
                             || pinButtonMouse.containsMouse
                             || resultMouse.containsMouse
                             || resultItem.index === root.selectedIndex ? 1.0 : 0.0
-                        Behavior on opacity { NumberAnimation { duration: 100 } }
+                        Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.instant.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
                         Rectangle {
                             anchors.centerIn: parent
@@ -1197,15 +1202,15 @@ PanelWindow {
                                 : "transparent"
                         }
 
-                        GlassText {
+                        BundledIcon {
                             anchors.centerIn: parent
-                            text: (resultItem.modelData.pinned ?? false) ? "★" : "☆"
+                            name: (resultItem.modelData.pinned ?? false) ? "search.pin.pinned" : "search.pin.unpinned"
                             color: (resultItem.modelData.pinned ?? false)
                                 ? (ThemeService.isDark ? "#ffd60a" : "#c08a00")
                                 : AppearanceTokens.content.glassInk(0.68)
-                            font.pixelSize: 13
-                            style: ThemeService.isDark ? Text.Outline : Text.Normal
-                            styleColor: dialog.textOutlineColor
+                            size: 13
+                            outlined: ThemeService.isDark
+                            outlineColor: dialog.textOutlineColor
                         }
 
                         MouseArea {
@@ -1227,7 +1232,7 @@ PanelWindow {
                         opacity: deleteBtnMouse.containsMouse
                             || resultMouse.containsMouse
                             || resultItem.index === root.selectedIndex ? 1.0 : 0.0
-                        Behavior on opacity { NumberAnimation { duration: 100 } }
+                        Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.instant.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
                         Rectangle {
                             anchors.centerIn: parent
@@ -1239,14 +1244,14 @@ PanelWindow {
                                 : "transparent"
                         }
 
-                        GlassText {
+                        BundledIcon {
                             anchors.centerIn: parent
-                            text: "×"
+                            name: "search.clipboard.remove"
                             color: deleteBtnMouse.containsMouse ? "#ff453a"
                                 : AppearanceTokens.content.glassInk(0.60)
-                            font.pixelSize: 16
-                            style: ThemeService.isDark ? Text.Outline : Text.Normal
-                            styleColor: dialog.textOutlineColor
+                            size: 16
+                            outlined: ThemeService.isDark
+                            outlineColor: dialog.textOutlineColor
                         }
 
                         MouseArea {
@@ -1388,14 +1393,14 @@ PanelWindow {
                             : (ThemeService.isDark ? Qt.rgba(0, 0, 0, 0.35) : Qt.rgba(1, 1, 1, 0.60))
                     }
 
-                    GlassText {
+                    BundledIcon {
                         anchors.centerIn: parent
-                        text: "×"
+                        name: "search.clipboard.remove"
                         color: gridDeleteMouse.containsMouse ? "#ff453a"
                             : AppearanceTokens.content.glassInk(0.80)
-                        font.pixelSize: 14
-                        style: ThemeService.isDark ? Text.Outline : Text.Normal
-                        styleColor: dialog.textOutlineColor
+                        size: 14
+                        outlined: ThemeService.isDark
+                        outlineColor: dialog.textOutlineColor
                     }
 
                     MouseArea {

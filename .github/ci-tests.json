@@ -1,6 +1,7 @@
 {
   "installed": ["kos-shell.installed-startup"],
   "data-platform": [
+    "kos-platform.kimpanel",
     "kos-platform.appmenu",
     "kos-platform.brightness",
     "kos-data-service.go",
@@ -18,11 +19,15 @@
     "kos-platform.contracts",
     "kos-glass.legacy-blur-region",
     "kos-glass.desktop-blur",
+    "kos-glass.overview-panel-projection",
     "kos-platform.status-panel-data",
     "kos-platform.status-panel-operations",
     "kos-app.dependency-migration"
   ],
   "logic": [
+    "kos-ui.system-font-policy",
+    "kos-shell.inputmethod-placement",
+    "kos-shell.inputmethod-status",
     "kos-shell.appmenu-refresh",
     "kos-window.gtk-buttons-install",
     "kos-window.firefox-buttons-install",
@@ -39,6 +44,7 @@
     "kos-shell.tray-attention-match",
     "kos-shell.tray-identity",
     "kos-shell.notification-count-match",
+    "kos-notifications.activation",
     "kos-shell.control-center-submenu-state",
     "kos-shell.visibility-policy",
     "kos-shell.wallpaper-slideshow",
@@ -64,6 +70,10 @@
     "kos-settings.native-genie-upgrade",
     "kos-settings.backend-modules",
     "kos-settings.independent-apps",
+    "kos-settings.app-catalog",
+    "kos-settings.wallpaper-gradient",
+    "kos-settings.wallpaper-palettes",
+    "kos-settings.app-updates",
     "kos-settings.flatpak-release",
     "kos-settings.flatpak-compatibility",
     "kos-settings.flatpak-process",
@@ -77,10 +87,14 @@
     "kos-settings.power-config"
   ],
   "widgets": [
+    "kos-ui.desktop-overview",
     "kos-ui.widget-experience",
     "kos-ui.widget-resize"
   ],
   "headless": [
+    "kos-settings.fonts",
+    "kos-shell.system-font",
+    "kos-shell.inputmethod-motion",
     "kos-shell.weather-refresh",
     "kos-shell.stage-visibility-qml",
     "kos-shell.dock-native-target",
@@ -88,6 +102,7 @@
     "kos-shell.desktop-lyrics",
     "kos-shell.notification-policy-production",
     "kos-shell.notification-pane",
+    "kos-shell.notification-open",
     "kos-ui.interaction-controls",
     "kos-ui.shared-motion",
     "kos-ui.kinetic-scroll",

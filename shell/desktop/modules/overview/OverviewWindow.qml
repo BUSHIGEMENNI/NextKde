@@ -39,8 +39,8 @@ PanelWindow {
     readonly property real revealProgress: popupMotion.progress
     PopupMotion {
         id: popupMotion
-        openDuration: 220
-        closeDuration: 220
+        openDuration: AppearanceTokens.motion.slow.duration
+        closeDuration: AppearanceTokens.motion.slow.duration
     }
 
     readonly property var desktops: WindowService.desktops || []
@@ -150,7 +150,7 @@ PanelWindow {
     Item {
         anchors.fill: parent
         opacity: root.revealProgress
-        scale: 0.96 + 0.04 * root.revealProgress
+        scale: 0.96 + 0.04 * popupMotion.geometryProgress
 
         Column {
             anchors {
@@ -202,7 +202,7 @@ PanelWindow {
                             border.color: isCurrent ? Qt.rgba(255, 255, 255, 0.45) : Qt.rgba(255, 255, 255, 0.25)
 
                             Behavior on color {
-                                ColorAnimation { duration: 150 }
+                                ColorAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve }
                             }
 
                             Row {
@@ -210,7 +210,7 @@ PanelWindow {
                                 spacing: 6
 
                                 BundledIcon {
-                                    name: "window"
+                                    name: "overview.windowFallback"
                                     size: 13
                                     color: isCurrent ? "#ffffff" : Qt.rgba(1, 1, 1, 0.65)
                                     anchors.verticalCenter: parent.verticalCenter
@@ -284,10 +284,10 @@ PanelWindow {
                             scale: isHovered || isSelected ? 1.028 : 1.0
                             y: isHovered || isSelected ? -4 : 0
                             Behavior on scale {
-                                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                                NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve }
                             }
                             Behavior on y {
-                                NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                                NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve }
                             }
 
                             // Card Glass Surface
@@ -303,8 +303,8 @@ PanelWindow {
                                     ? "#38bdf8"
                                     : (cardDelegate.isHovered ? Qt.rgba(255, 255, 255, 0.38) : Qt.rgba(255, 255, 255, 0.14))
 
-                                Behavior on color { ColorAnimation { duration: 140 } }
-                                Behavior on border.color { ColorAnimation { duration: 140 } }
+                                Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
+                                Behavior on border.color { ColorAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
                                 Column {
                                     anchors.fill: parent
@@ -325,7 +325,7 @@ PanelWindow {
                                             }
                                             spacing: 8
 
-                                            IconImage {
+                                            AppIcon {
                                                 width: 20
                                                 height: 20
                                                 anchors.verticalCenter: parent.verticalCenter
@@ -364,13 +364,13 @@ PanelWindow {
                                                 : (cardDelegate.isHovered ? Qt.rgba(1, 1, 1, 0.16) : "transparent")
                                             opacity: cardDelegate.isHovered || cardDelegate.isSelected ? 1.0 : 0.0
 
-                                            Behavior on opacity { NumberAnimation { duration: 120 } }
-                                            Behavior on color { ColorAnimation { duration: 120 } }
+                                            Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve } }
+                                            Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
-                                            Text {
+                                            BundledIcon {
                                                 anchors.centerIn: parent
-                                                text: "✕"
-                                                font.pixelSize: 10
+                                                name: "overview.closeWindow"
+                                                size: 10
                                                 color: "white"
                                             }
 
@@ -423,7 +423,7 @@ PanelWindow {
                                                 anchors.centerIn: parent
                                                 spacing: 8
 
-                                                IconImage {
+                                                AppIcon {
                                                     anchors.horizontalCenter: parent.horizontalCenter
                                                     width: 44
                                                     height: 44
@@ -475,7 +475,7 @@ PanelWindow {
 
                     BundledIcon {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        name: "window"
+                        name: "overview.windowFallback"
                         size: 32
                         color: Qt.rgba(1, 1, 1, 0.25)
                     }

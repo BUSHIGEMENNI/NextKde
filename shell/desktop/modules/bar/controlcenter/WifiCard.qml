@@ -17,7 +17,7 @@ ControlCenterCard {
         pressed: wifiPagePointer.pressed || wifiTogglePointer.pressed
     }
     cardScale: wifiPagePointer.pressed ? 0.97 : wifiPagePointer.containsMouse ? 1.015 : 1
-    Behavior on cardScale { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: Easing.OutCubic } }
+    Behavior on cardScale { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: AppearanceTokens.motion.enterCurve } }
     Rectangle {
         id: wifiToggleDisc
         width: 39; height: 39; radius: width / 2
@@ -26,11 +26,11 @@ ControlCenterCard {
             ? ThemeService.tileActiveFill
             : (AppearanceTokens.surface.pick(AppearanceTokens.colors.surfaceContainerHigh, ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0, 0, 0, 0.05)))
         opacity: wifiCard.network.wifiToggleInProgress ? 0.55 : 1.0
-        Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.fastDuration } }
+        Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: AppearanceTokens.motion.enterCurve } }
         scale: wifiTogglePointer.pressed ? 0.92
             : (wifiTogglePointer.containsMouse ? 1.04 : 1.0)
-        Behavior on color { ColorAnimation { duration: 140 } }
-        Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
+        Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
+        Behavior on scale { NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve } }
         WifiSignalIcon {
             // Matches the readability edge the popup text already carries.
             outlined: AppearanceTokens.isDarkTheme
@@ -38,7 +38,7 @@ ControlCenterCard {
             anchors.centerIn: parent
             width: 20; height: 20
             opacity: wifiCard.network.wifiToggleInProgress ? 0 : 1
-            Behavior on opacity { NumberAnimation { duration: 140 } }
+            Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
             wifiEnabled: wifiCard.network.wifiEnabled
             connected: wifiCard.network.deviceState === "connected"
                 && wifiCard.network.connectionType === "wifi"
@@ -55,7 +55,7 @@ ControlCenterCard {
             width: 21; height: 21
             opacity: wifiCard.network.wifiToggleInProgress ? 1 : 0
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 140 } }
+            Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
             Canvas {
                 id: wifiBusyArc
@@ -84,6 +84,7 @@ ControlCenterCard {
                 running: wifiBusySpinner.visible && wifiCard.network.wifiToggleInProgress
                 loops: Animation.Infinite
                 from: 0; to: 360
+                // motion-exception: keep the 900ms loading rotation period.
                 duration: 900
             }
         }
@@ -106,7 +107,7 @@ ControlCenterCard {
             width: parent.width
             text: "Wi‑Fi"
             color: wifiCard.materialForegroundColor
-            font { pixelSize: 12; weight: Font.Bold; family: "Noto Sans CJK SC" }
+            font { pixelSize: 12; weight: Font.Bold; family: AppearanceTokens.typography.textFamily }
         }
         GlassText {
             width: parent.width
@@ -115,15 +116,15 @@ ControlCenterCard {
             elide: Text.ElideRight
             color: wifiCard.materialSecondaryForegroundColor
             opacity: 1.0
-            font { pixelSize: 10; family: "Noto Sans CJK SC" }
+            font { pixelSize: 10; family: AppearanceTokens.typography.textFamily }
         }
     }
-    GlassText {
+    BundledIcon {
         anchors { right: parent.right; rightMargin: 8; verticalCenter: parent.verticalCenter }
-        text: "›"
+        name: "network.wifi.details"
         color: wifiCard.materialSecondaryForegroundColor
         opacity: 0.60
-        font { pixelSize: 14; weight: Font.Bold }
+        size: 14
     }
     MouseArea {
         id: wifiPagePointer

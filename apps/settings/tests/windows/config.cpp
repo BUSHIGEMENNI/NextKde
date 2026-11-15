@@ -4,6 +4,7 @@
 #include <QTemporaryDir>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <KSharedConfig>
@@ -35,7 +36,7 @@ int main(int argc, char **argv) {
     const QString filename = temporary.path() + "/kos/window-appearance.json";
     auto put = [&](const QByteArray &bytes) { QFile f(filename); CHECK(f.open(QIODevice::WriteOnly)); CHECK(f.write(bytes)==bytes.size()); };
     auto get = [&]() { QFile f(filename); CHECK(f.open(QIODevice::ReadOnly)); return f.readAll(); };
-    put(R"({"version":2,"revision":7,"extra":"keep","apps":{"demo":{"enabled":false}},"defaults":{"corners":{"radius":20,"extra":42}}})");
+    put(R"({"version":2,"revision":7,"extra":"keep","apps":{"demo":{"enabled":false}},"defaults":{"corners":{"radius":20,"extra":42},"states":{"fullscreen":"off","tiled":"square","extra":42}}})");
     WindowSettings settings;
     CHECK(settings.setRadius(28));
     CHECK(settings.setShadow(false));
@@ -45,6 +46,21 @@ int main(int argc, char **argv) {
     CHECK(json["defaults"].toObject()["corners"].toObject()["extra"].toInt()==42);
     CHECK(settings.state()["radius"].toInt()==28);
     CHECK(!settings.state()["shadow"].toBool());
+    CHECK(!settings.state()["squareMaximized"].toBool());
+    CHECK(settings.setSquareMaximized(true));
+    CHECK(settings.state()["squareMaximized"].toBool());
+    json=QJsonDocument::fromJson(get()).object();
+    const auto states=json["defaults"].toObject()["states"].toObject();
+    CHECK(states["maximized"]=="square");
+    CHECK(states["fullscreen"]=="off"); CHECK(states["tiled"]=="square");
+    CHECK(states["extra"].toInt()==42);
+    CHECK(settings.state()["radius"].toInt()==28);
+    CHECK(!settings.state()["shadow"].toBool());
+    CHECK(json["extra"]=="keep"); CHECK(json["apps"].toObject().contains("demo"));
+    CHECK(settings.setSquareMaximized(false));
+    CHECK(!settings.state()["squareMaximized"].toBool());
+    CHECK(QJsonDocument::fromJson(get()).object()["defaults"].toObject()["states"].toObject()["maximized"]=="inherit");
+    CHECK(settings.setSquareMaximized(true));
     auto config=KSharedConfig::openConfig("kwinrc");
     KConfigGroup decoration(config,"org.kde.kdecoration2");
     decoration.writeEntry("library", "third_party"); decoration.writeEntry("theme", "theme-a"); CHECK(config->sync());
@@ -52,6 +68,25 @@ int main(int argc, char **argv) {
     CHECK(settings.state()["decoration"]=="kos_decoration");
     CHECK(gtkStyle().contains("kos_native_controls"));
     CHECK(gtkStyle().contains("personal GTK style"));
+    // Exercise the embedded installer, not a source-only mock. It must not
+    // send Chromium/GTK originals to the opposite side of KOS overlays.
+    for (const auto &version : {"3.0", "4.0"}) {
+        QFile ini(temporary.path() + "/gtk-" + QString::fromLatin1(version) + "/settings.ini");
+        CHECK(ini.open(QIODevice::ReadOnly));
+        const auto lines = QString::fromUtf8(ini.readAll()).split('\n');
+        bool found = false;
+        for (const auto &line : lines) if (line.startsWith("gtk-decoration-layout=")) {
+            found = true;
+            const auto parts = line.section('=', 1).split(':');
+            CHECK(parts.size() == 2);
+            for (const auto &action : {"close", "minimize", "maximize"}) {
+                CHECK(!parts[0].split(',').contains(QString::fromLatin1(action)));
+                CHECK(parts[1].split(',').contains(QString::fromLatin1(action)));
+            }
+        }
+        CHECK(found);
+    }
+
     CHECK(settings.setButtonGlyphMode("hover"));
     CHECK(gtkStyle().contains("opacity: 0"));
     CHECK(settings.setButtonGlyphMode("always"));
@@ -123,13 +158,16 @@ int main(int argc, char **argv) {
     CHECK(persisted["hideAnimation"]=="none"); CHECK(persisted["closeAnimation"]=="fade");
     CHECK(persisted["buttonGlyphMode"]=="hover");
     CHECK(persisted["radius"].toInt()==28); CHECK(!persisted["shadow"].toBool());
+    CHECK(persisted["squareMaximized"].toBool());
     CHECK(!persisted["enabled"].toBool()); CHECK(persisted["decoration"]=="changed_externally");
     const auto saved=get();
     CHECK(!settings.setRadius(-1)); CHECK(!settings.setRadius(201)); CHECK(get()==saved);
     { QLockFile lock(filename+".lock"); CHECK(lock.tryLock(0)); CHECK(!settings.setShadow(true)); CHECK(get()==saved); }
+    { QLockFile lock(filename+".lock"); CHECK(lock.tryLock(0)); CHECK(!settings.setSquareMaximized(false)); CHECK(get()==saved); }
     CHECK(!settings.setAnimation("close", "genie"));
     CHECK(settings.state()["closeAnimation"]=="fade");
     put("malformed"); CHECK(!settings.setRadius(12)); CHECK(get()=="malformed");
+    CHECK(!settings.setSquareMaximized(true)); CHECK(get()=="malformed");
     put(R"({"version":1,"defaults":{"stroke":{"width":1}}})");
     CHECK(settings.setRadius(8)); json=QJsonDocument::fromJson(get()).object();
     CHECK(json["version"].toInt()==1);
@@ -142,5 +180,71 @@ int main(int argc, char **argv) {
     CHECK(!settings.setTakeover(true));
     CHECK(get()==beforeGtkFailure);
     CHECK(gtkStyle()=="managed externally");
+
+    const QString buttonsFilename = temporary.path() + "/kos/window-buttons.json";
+    auto putButtons = [&](const QByteArray &bytes) { QFile f(buttonsFilename); CHECK(f.open(QIODevice::WriteOnly)); CHECK(f.write(bytes)==bytes.size()); };
+    auto getButtons = [&]() { QFile f(buttonsFilename); CHECK(f.open(QIODevice::ReadOnly)); return f.readAll(); };
+    putButtons(R"({"default":{"glyphMode":"hover","background":"dark"},"extra":"keep","apps":{"keep.enabled":{"showButtons":true,"background":"dark"},"md.obsidian.Obsidian":{"showButtons":false,"background":"light"}},"rules":[{"match":{"class":"qq"},"showButtons":true}]})");
+    CHECK(settings.state()["buttonExclusions"].toStringList()==QStringList{"md.obsidian.Obsidian"});
+    CHECK(settings.setButtonExclusion(" firefox ", true));
+    CHECK(settings.state()["buttonExclusions"].toStringList()==QStringList({"firefox", "md.obsidian.Obsidian"}));
+    auto buttonsJson=QJsonDocument::fromJson(getButtons()).object();
+    CHECK(buttonsJson["extra"]=="keep");
+    CHECK(buttonsJson["default"].toObject()["glyphMode"]=="hover");
+    CHECK(buttonsJson["default"].toObject()["background"]=="dark");
+    CHECK(buttonsJson["apps"].toObject()["md.obsidian.Obsidian"].toObject()["background"]=="light");
+    CHECK(buttonsJson["rules"].toArray().size()==1);
+    const auto afterFirefoxAdd=getButtons();
+    CHECK(settings.setButtonExclusion("firefox", true));
+    CHECK(getButtons()==afterFirefoxAdd);
+    CHECK(settings.setButtonExclusion("md.obsidian.Obsidian", false));
+    buttonsJson=QJsonDocument::fromJson(getButtons()).object();
+    CHECK(!buttonsJson["apps"].toObject()["md.obsidian.Obsidian"].toObject().contains("showButtons"));
+    CHECK(buttonsJson["apps"].toObject()["md.obsidian.Obsidian"].toObject()["background"]=="light");
+    CHECK(settings.state()["buttonExclusions"].toStringList()==QStringList{"firefox"});
+    const auto afterObsidianRemove=getButtons();
+    CHECK(settings.setButtonExclusion("md.obsidian.Obsidian", false));
+    CHECK(getButtons()==afterObsidianRemove);
+    CHECK(settings.setButtonExclusion("keep.enabled", false));
+    CHECK(getButtons()==afterObsidianRemove);
+    CHECK(settings.setButtonExclusion("keep.enabled", true));
+    CHECK(settings.setButtonExclusion("keep.enabled", false));
+    buttonsJson=QJsonDocument::fromJson(getButtons()).object();
+    CHECK(!buttonsJson["apps"].toObject()["keep.enabled"].toObject().contains("showButtons"));
+    CHECK(buttonsJson["apps"].toObject()["keep.enabled"].toObject()["background"]=="dark");
+    CHECK(settings.setButtonExclusion("firefox", false));
+    buttonsJson=QJsonDocument::fromJson(getButtons()).object();
+    CHECK(!buttonsJson["apps"].toObject().contains("firefox"));
+    CHECK(settings.setButtonExclusion("firefox", true));
+    CHECK(settings.setButtonExclusion("firefox", false));
+    const auto beforeInvalidButtons=getButtons();
+    CHECK(!settings.setButtonExclusion("   ", true));
+    CHECK(!settings.error().isEmpty());
+    CHECK(getButtons()==beforeInvalidButtons);
+    { QLockFile lock(buttonsFilename+".lock"); CHECK(lock.tryLock(0)); CHECK(!settings.setButtonExclusion("firefox", true)); CHECK(getButtons()==beforeInvalidButtons); }
+    putButtons("malformed"); CHECK(!settings.setButtonExclusion("firefox", true)); CHECK(getButtons()=="malformed");
+    putButtons(R"({"apps":[]})"); CHECK(!settings.setButtonExclusion("firefox", true)); CHECK(getButtons()==R"({"apps":[]})");
+    putButtons(R"({"apps":{"firefox":true}})"); CHECK(!settings.setButtonExclusion("firefox", true)); CHECK(getButtons()==R"({"apps":{"firefox":true}})");
+    putButtons(R"({"apps":{"firefox":{"showButtons":"false"}}})"); CHECK(!settings.setButtonExclusion("firefox", true)); CHECK(getButtons()==R"({"apps":{"firefox":{"showButtons":"false"}}})");
+
+    putButtons(R"({"extra":42,"default":{"buttonSize":30},"apps":{"demo":{"buttonSize":24}},"rules":[{"match":{"class":"demo"},"buttonSize":26}]})");
+    CHECK(!settings.state()["independentButtonBackground"].toBool());
+    CHECK(settings.setIndependentButtonBackground(true));
+    CHECK(settings.state()["independentButtonBackground"].toBool());
+    const auto coverDoc = QJsonDocument::fromJson(getButtons()).object();
+    CHECK(coverDoc["extra"].toInt() == 42);
+    CHECK(coverDoc["default"].toObject()["buttonSize"].toInt() == 30);
+    CHECK(coverDoc["apps"].toObject()["demo"].toObject()["buttonSize"].toInt() == 24);
+    CHECK(coverDoc["rules"].isArray());
+    WindowSettings reread;
+    CHECK(reread.state()["independentButtonBackground"].toBool());
+    CHECK(settings.setIndependentButtonBackground(false));
+    CHECK(!settings.state()["independentButtonBackground"].toBool());
+    const auto beforeCoverFailure = getButtons();
+    { QLockFile lock(buttonsFilename + ".lock"); CHECK(lock.tryLock(0)); CHECK(!settings.setIndependentButtonBackground(true)); }
+    CHECK(getButtons() == beforeCoverFailure);
+    putButtons("malformed");
+    CHECK(!settings.setIndependentButtonBackground(true));
+    CHECK(getButtons() == "malformed");
     qInfo("Window settings configuration checks passed");
 }

@@ -161,8 +161,9 @@ ListModel {
         // Quickshell-only service registry into a plain Qt Quick Test process.
         const directory = mkdtempSync(join(tmpdir(), "kos-dock-highlight-"));
         try {
-            copyFileSync(new URL("../../shared/qml/controls/SelectionHighlight.qml", import.meta.url),
-                join(directory, "SelectionHighlight.qml"));
+            const highlight = readFileSync(new URL("../../shared/qml/controls/SelectionHighlight.qml", import.meta.url), "utf8")
+                .replace('"../foundation"', JSON.stringify(new URL("../../shared/qml/foundation", import.meta.url).href));
+            writeFileSync(join(directory, "SelectionHighlight.qml"), highlight);
             const dockWrapper = readFileSync(new URL("../../shell/desktop/modules/dock/DockIconHighlight.qml", import.meta.url), "utf8")
                 .replace('import "../../../Kos/Ui"', 'import "."');
             writeFileSync(join(directory, "DockIconHighlight.qml"), dockWrapper);
@@ -425,6 +426,7 @@ ListModel {
             copyFileSync(new URL("./fixtures/WindowService.qml", import.meta.url), join(dock, 'WindowService.qml'));
             for (const name of ['LiquidGlassPanel.qml', 'AppearanceTokens.qml'])
                 copyFileSync(new URL(`fixtures/${name}`, import.meta.url), join(common, name));
+            copyFileSync(new URL('../../shared/qml/foundation/MotionTokens.qml', import.meta.url), join(common, 'MotionTokens.qml'));
             writeFileSync(join(dock, 'ConfigService.qml'), `pragma Singleton
 import QtQuick
 QtObject { readonly property real effectiveHoverScale: 1.1 }
@@ -438,6 +440,7 @@ QtObject { readonly property real effectiveHoverScale: 1.1 }
         `);
             writeFileSync(join(common, 'qmldir'), `module qs.desktop.modules.common
         LiquidGlassPanel 1.0 LiquidGlassPanel.qml
+        MotionTokens 1.0 MotionTokens.qml
         singleton AppearanceTokens 1.0 AppearanceTokens.qml
         `);
             copyFileSync(new URL("./reveal.qml", import.meta.url), join(directory, 'shell.qml'));
@@ -457,7 +460,8 @@ QtObject { readonly property real effectiveHoverScale: 1.1 }
             assert.match(output, /DOCK_REVEAL_RUNTIME_PASS/, output);
             console.log('Dock reveal: real HoverHandler input, delayed/cancelled entry, slow gap hand-off, hide reset, dynamic span, legacy default, mode switching and disabled mode passed offscreen');
         } finally {
-            rmSync(directory, { recursive: true, force: true });
+            if (process.env.KOS_KEEP_TEST_TMP === "1") console.log(`Fixture retained: ${directory}`);
+            else rmSync(directory, { recursive: true, force: true });
         }
     },
     "reveal-indicator": async () => {
@@ -764,21 +768,22 @@ QtObject { readonly property real effectiveHoverScale: 1.1 }
     "lyrics": async () => {
         const dir=mkdtempSync(join(tmpdir(),'kos-lyrics-'));
         try {
-            const source=new URL('../../shell/desktop/modules/dock/',import.meta.url);
+            const source=new URL('../../shell/desktop/modules/common/',import.meta.url);
             // Keep the production service and timers, replace only the D-Bus model
             // and the deskcenter module import (stubbed locally below).
-            writeFileSync(join(dir,'DockMprisService.qml'),readFileSync(new URL('DockMprisService.qml',source),'utf8')
+            writeFileSync(join(dir,'MediaService.qml'),readFileSync(new URL('MediaService.qml',source),'utf8')
                 .replace('import Quickshell.Services.Mpris','import "."')
                 .replace("import qs.desktop.modules.deskcenter\n",""));
             copyFileSync(new URL('TimedLyrics.mjs',source),join(dir,'TimedLyrics.mjs'));
             copyFileSync(new URL('lyrics.qml',import.meta.url),join(dir,'tst_lyrics.qml'));
-            writeFileSync(join(dir,'qmldir'),'singleton DockMprisService 1.0 DockMprisService.qml\nsingleton DeskCenterConfigService 1.0 DeskCenterConfigService.qml\nsingleton Mpris 1.0 Mpris.qml\nsingleton MprisPlaybackState 1.0 MprisPlaybackState.qml\nMprisPlayer 1.0 MprisPlayer.qml\n');
+            writeFileSync(join(dir,'qmldir'),'singleton MediaService 1.0 MediaService.qml\nsingleton DeskCenterConfigService 1.0 DeskCenterConfigService.qml\nsingleton Mpris 1.0 Mpris.qml\nsingleton MprisPlaybackState 1.0 MprisPlaybackState.qml\nMprisPlayer 1.0 MprisPlayer.qml\n');
             writeFileSync(join(dir,'DeskCenterConfigService.qml'),'pragma Singleton\nimport QtQuick\nQtObject { readonly property bool desktopLyricsActive: true }\n');
             writeFileSync(join(dir,'Mpris.qml'),'pragma Singleton\nimport QtQuick\nQtObject { property var players: [] }\n');
             writeFileSync(join(dir,'MprisPlaybackState.qml'),'pragma Singleton\nimport QtQuick\nQtObject { readonly property int paused: 2; enum State { Stopped, Playing, Paused } }\n');
             writeFileSync(join(dir,'MprisPlayer.qml'),`import QtQuick
         QtObject {
             property string dbusName: ""
+            property bool canControl: true
             property var metadata: ({})
             property bool isPlaying: false
             property bool positionSupported: true

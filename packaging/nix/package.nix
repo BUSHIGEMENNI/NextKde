@@ -81,11 +81,20 @@ stdenv.mkDerivation {
     mkdir -p $out/libexec
     ln -s ${kos-platform}/libexec/kos-platform $out/libexec/kos-platform
     ln -s ${kos-platform}/libexec/kos-ai-worker $out/libexec/kos-ai-worker
+    mkdir -p $out/lib/fcitx5 $out/share/fcitx5/addon
+    ln -s ${kos-platform}/lib/fcitx5/libnextkde-inputpanel.so $out/lib/fcitx5/libnextkde-inputpanel.so
+    ln -s ${kos-platform}/share/fcitx5/addon/nextkde-inputpanel.conf $out/share/fcitx5/addon/nextkde-inputpanel.conf
     ln -s ${shell-data-service}/libexec/kos-data-service $out/libexec/kos-data-service
 
     mkdir -p $out/bin
     ln -s ${kos-settings}/bin/kos-settings $out/bin/kos-settings
     ln -s ${kos-settings}/bin/kos-apps $out/bin/kos-apps
+    ln -s ${kos-settings}/bin/kos-app-update-agent $out/bin/kos-app-update-agent
+    if [ -x ${kos-settings}/bin/kos-flatpak-worker ]; then
+      ln -s ${kos-settings}/bin/kos-flatpak-worker $out/bin/kos-flatpak-worker
+    fi
+    mkdir -p $out/etc/xdg/autostart
+    cp ${kos-settings}/etc/xdg/autostart/kos-app-updates.desktop $out/etc/xdg/autostart/
     mkdir -p $out/lib/gtk-3.0/modules
     ln -s ${kos-settings}/lib/gtk-3.0/modules/libkos-gtk-window-controls.so $out/lib/gtk-3.0/modules/libkos-gtk-window-controls.so
 
@@ -122,6 +131,8 @@ stdenv.mkDerivation {
     # files and tests must never reach the installed tree.
     mkdir -p $out/share/shared/qml
     cp -r shared/qml/. $out/share/shared/qml/
+        cp -r shared/Icons $out/share/shared/Icons
+        rm -f $out/share/shared/Icons/CMakeLists.txt
     find $out/share/shared/qml -maxdepth 1 \
         -name CMakeLists.txt -o -name 'test_*.mjs' | xargs -r rm -f
 

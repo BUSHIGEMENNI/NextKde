@@ -3,7 +3,10 @@
 `main.qml` is the composition root. It owns navigation, lazy Loader lifetimes,
 window chrome and the application palette. `pages/` owns feature views and
 feature-local state; `components/` owns reusable presentation controls. Existing
-wallpaper, services and notifications pages retain their established interfaces.
+wallpaper, services and notifications pages live here with their established
+interfaces. Wallpaper-only tiles, pickers and row helpers are colocated with
+their page; cross-page controls, including `SettingsTextButton`, belong in
+`components/`.
 No registry, dependency container or second IPC protocol is introduced.
 
 ## Inputs and outputs
@@ -11,11 +14,37 @@ No registry, dependency container or second IPC protocol is introduced.
 - `colors` is a required palette object: the semantic color roles and
   `role(name, fallback)` supplied by the root. Pages must not access the root's
   `theme` id. `materialForm` is a presentation input where applicable.
+- About takes `colors` and an optional application-owned `cache`, with no Shell bridge. Isolated consumers can set
+  `loadContributors: false` before creation to suppress automatic GitHub requests.
 - `bridge` is the existing SettingsBridge interface, explicitly injected by the
   root; `null` means unavailable. Pages retain their existing method and snapshot
   signal contracts. The window appearance page instead receives `backend`, the
   existing WindowSettings object. Neither dependency is discovered from context
-  properties inside extracted pages.
+  properties inside extracted pages. The window appearance page also receives
+  `bridge` for on-demand running-app discovery through `fgSchedRunningApps()`;
+  its per-app button exclusions use the actual KWin resource classes, carried
+  separately from desktop entry IDs through `windowClasses`. Running apps remain
+  grouped by app ID and adding an app excludes each reported class. Desktop IDs
+  still supply names and icons; they must never substitute for missing classes.
+  Older Shell replies without classes leave the manual exact-class entry available.
+  A separate refresh action
+  remains available when the list is populated and preserves the selected app
+  by ID. The selected app and exclusion rows show desktop-entry/theme icons,
+  with a generic fallback; action icons retain accessible names and Demo tooltips.
+  It does not poll.
+- `ThemeSettingsPage.fontsRequested()` opens route 14 under Theme. The font page
+  receives the `FontSettings` native KCM adapter as `backend` and the Shell
+  appearance `bridge` separately. The composition root's existing history toolbar
+  returns to Theme, including when Fonts is opened directly; pages add no second
+  back button. The font entry follows the other configuration groups on Theme,
+  with the shared chevron vector icon.
+  KDE edits automatically save after 350 ms without further input. The timer
+  belongs to the long-lived adapter, so page navigation does not discard edits;
+  application shutdown flushes a pending change. There is no apply/reset footer.
+  Desktop font defaults to General font, with an optional Shell-only family
+  override via appearance IPC; its picker hides size and style. Empty resets
+  to follow-system, and confirmed Shell snapshots update the displayed value.
+  FontPickerDialog uses shared NextKde controls and Qt font database choices.
 - `glassStyles` provides `options`, `indexOf(id)` and `labelOf(id)` to appearance
   views. This catalog stays owned by the composition root.
 - `shellStyleObserved(style)` and `materialSeedObserved(seed)` report confirmed

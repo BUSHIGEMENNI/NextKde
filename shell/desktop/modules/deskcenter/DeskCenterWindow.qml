@@ -35,10 +35,14 @@ PanelWindow {
     // 会被同在 DesktopLayer 的 Plasma 桌面表面盖住——实测重登后组件全部
     // 消失。与台前调度条带的层内先后由 KWin 脚本重排，见
     // kwin/window-bridge.js。
-    // KWin excludes Desktop windows from active-window close/move shortcuts.
-    // Bottom remains the compositor layer; the desktop stack script orders
-    // the separate wallpaper below this keyboard-interactive desktop surface.
-    WlrLayershell.namespace: "desktop"
+    // KWin protects both Desktop and Dock windows from ordinary close/move
+    // shortcuts and Show Desktop hiding. Only the wallpaper may be Desktop:
+    // native Overview's DesktopBackground captures one Desktop window, so
+    // typing this transparent widget surface as Desktop loses the wallpaper.
+    // Bottom still puts widgets below applications; the bridge orders them
+    // above the separate wallpaper. Native Overview fades Dock thumbnails;
+    // Glass supplies the composed desktop texture so widgets scale with it.
+    WlrLayershell.namespace: "dock"
     WlrLayershell.layer: WlrLayer.Bottom
     // A desktop needs shortcuts only after the user explicitly clicks it.
     // OnDemand keeps active applications' Ctrl+C/V untouched otherwise.
@@ -165,15 +169,22 @@ PanelWindow {
         root.widgetLibraryOpen = false
         root.editMode = false
     }
+
+    // Widget editing is modal: the gesture that entered it also leaves it.
+    // Nothing is ever pending at this point -- a moved card is persisted when
+    // its drag ends and a resized card when the handle commits -- so leaving
+    // only drops the editing chrome, it never has to flush state.
+    function toggleWidgetEditMode() {
+        if (root.editMode)
+            root.leaveWidgetEditMode()
+        else
+            root.enterWidgetEditMode(false)
+    }
     readonly property var widgetLabels: ({
         clock: I18n.tr("Clock"), weather: I18n.tr("Weather"),
         calendar: I18n.tr("Calendar"), todo: I18n.tr("To-Do"),
         system: I18n.tr("System"), activity: I18n.tr("Activity"),
         music: I18n.tr("Music")
-    })
-    readonly property var widgetSymbols: ({
-        clock: "◷", weather: "☀", calendar: "▦", todo: "✓",
-        system: "⌁", activity: "◌", music: "♫"
     })
     // Referencing the singleton starts the shared activity recorder once the
     // desktop surface is available.
@@ -424,12 +435,27 @@ PanelWindow {
 
     MouseArea {
         id: globalDesktopBackgroundArea
+        objectName: "desktop-background-catcher"
         anchors.fill: parent
         z: 0
         acceptedButtons: Qt.LeftButton | Qt.RightButton
+        // A long press enters widget editing, and releasing it must not be read
+        // as a plain click: a plain click on this surface either toggles
+        // show-desktop or leaves editing, and neither may happen from the hold
+        // that just started editing.
+        property bool holdEnteredEditing: false
 
         onPressed: function(mouse) {
+            holdEnteredEditing = false
             if (mouse.button === Qt.RightButton) {
+                // While editing, bare desktop dismisses the session instead of
+                // opening the menu. That menu is the way *into* editing (Add
+                // Widgets / Edit Widgets), so it belongs to the non-editing
+                // desktop; outside editing the next right click opens it.
+                if (root.editMode) {
+                    root.leaveWidgetEditMode()
+                    return
+                }
                 desktopFileGrid.setSelectedPaths([])
                 desktopFileGrid.contextEntry = null
                 desktopFileGrid.showMenu(null,
@@ -438,21 +464,36 @@ PanelWindow {
             }
             desktopFileGrid.clearDesktopSelection()
         }
-        // 空桌面左键＝显示桌面开关：台前侧栏把桌面应用全部带动画收进
-        // 卡，再点一次整组放出来。⚠️ 不能在 onPressAndHold 里吞事件来
-        // 防误触——按住超 800ms 的"慢点击"会被一起吞掉（点击全部失效，
-        // 实测踩过）；改用 editMode 守卫：长按进了挂件编辑模式，release
-        // 的 clicked 自然跳过。
+        // 空桌面左键：编辑模式下退出编辑（改动先在各自手势里落盘，这里只
+        // 收尾），否则＝显示桌面开关：台前侧栏把桌面应用全部带动画收进卡，
+        // 再点一次整组放出来。⚠️ 不能在 onPressAndHold 里吞事件来防误触
+        // ——按住超 800ms 的"慢点击"会被一起吞掉（点击全部失效，实测踩
+        // 过）；改用 holdEnteredEditing 守卫：长按进了挂件编辑模式，
+        // release 的 clicked 自然跳过。
         onClicked: function(mouse) {
+            if (mouse.button !== Qt.LeftButton)
+                return
+            if (holdEnteredEditing) {
+                holdEnteredEditing = false
+                return
+            }
+            if (root.editMode) {
+                // Leaving is the click's job while a widget is being placed;
+                // modifier clicks stay selection-only, as below.
+                if (mouse.modifiers === Qt.NoModifier)
+                    root.leaveWidgetEditMode()
+                return
+            }
             // 修饰键守卫与网格入口（FreeSlotDesktopDemo）同款：Ctrl/Shift+
             // 点击是选择语义，不该翻转显示桌面
-            if (mouse.button === Qt.LeftButton && !root.editMode
-                    && mouse.modifiers === Qt.NoModifier)
+            if (mouse.modifiers === Qt.NoModifier)
                 StageModeService.deskRevealToggleRequested()
         }
         onPressAndHold: function(mouse) {
-            if (mouse.button === Qt.LeftButton && mouse.modifiers === Qt.NoModifier)
+            if (mouse.button === Qt.LeftButton && mouse.modifiers === Qt.NoModifier) {
+                holdEnteredEditing = true
                 root.enterWidgetEditMode(false)
+            }
         }
     }
 
@@ -463,7 +504,7 @@ PanelWindow {
         opacity: root.editMode ? 1 : 0
         visible: root.editMode || opacity > 0
         enabled: root.editMode
-        Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.fastDuration } }
+        Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: AppearanceTokens.motion.enterCurve } }
         anchors { top: parent.top; right: parent.right; topMargin: root.topInset; rightMargin: 24 }
         spacing: 8
 
@@ -517,7 +558,7 @@ PanelWindow {
         enabled: root.editMode && root.widgetLibraryOpen
         scale: 0.96 + 0.04 * opacity
         transformOrigin: Item.TopRight
-        Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.normalDuration; easing.type: Easing.OutCubic } }
+        Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.normalDuration; easing.type: AppearanceTokens.motion.enterCurve } }
         anchors { top: widgetEditToolbar.bottom; right: widgetEditToolbar.right; topMargin: 10 }
         width: 430
         height: 116
@@ -558,11 +599,11 @@ PanelWindow {
                     Column {
                         anchors.centerIn: parent
                         spacing: 5
-                        Text {
+                        BundledIcon {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: root.widgetSymbols[modelData]
+                            name: "desktop.widget." + modelData
                             color: ThemeService.foregroundColor
-                            font.pixelSize: 20
+                            size: 20
                         }
                         Text {
                             anchors.horizontalCenter: parent.horizontalCenter
@@ -570,11 +611,11 @@ PanelWindow {
                             color: ThemeService.foregroundColor
                             font { pixelSize: 9; weight: Font.DemiBold }
                         }
-                        Text {
+                        BundledIcon {
                             anchors.horizontalCenter: parent.horizontalCenter
-                            text: active ? "−" : "+"
+                            name: active ? "desktop.widget.remove" : "desktop.widget.add"
                             color: active ? "#ff453a" : ThemeService.accentColor
-                            font { pixelSize: 14; weight: Font.Bold }
+                            size: 14
                         }
                     }
                     TapHandler {
@@ -590,17 +631,44 @@ PanelWindow {
         id: widgetDropPreview
         objectName: "widget-drop-preview"
         z: 110
-        visible: root.activeDragCard !== null
         readonly property var dragged: root.activeDragCard
-        readonly property bool allowed: dragged?.dropAllowed ?? false
-        x: root.leftInset + (dragged?.dropPosition.column ?? 0) * (root.cellSize + root.gap)
-        y: root.topInset + (dragged?.dropPosition.row ?? 0) * (root.cellSize + root.gap)
-        width: root.spanSize(dragged?.displayColumns ?? 1)
-        height: root.spanSize(dragged?.displayRows ?? 1)
+        // The highlight marks the cell the pointer is over, so it jumps from
+        // cell to cell: only ever one cell is lit. Sliding it across the cells
+        // in between read as several cells lighting up in a row.
+        // Snapshot only live drag updates. Once the drag is gone, keep the
+        // last target geometry and colour for the entire fade-out.
+        property rect lastGeometry: Qt.rect(0, 0, 0, 0)
+        readonly property rect previewGeometry: dragged !== null
+            ? Qt.rect(root.leftInset + dragged.dropPosition.column * (root.cellSize + root.gap),
+                root.topInset + dragged.dropPosition.row * (root.cellSize + root.gap),
+                root.spanSize(dragged.displayColumns), root.spanSize(dragged.displayRows))
+            : lastGeometry
+        onPreviewGeometryChanged: if (dragged !== null) lastGeometry = previewGeometry
+        property bool lastAllowed: false
+        readonly property bool allowed: dragged !== null ? dragged.dropAllowed : lastAllowed
+        onAllowedChanged: if (dragged !== null) lastAllowed = allowed
+        x: previewGeometry.x
+        y: previewGeometry.y
+        width: previewGeometry.width
+        height: previewGeometry.height
         radius: AppearanceTokens.widget.radius
         color: allowed ? "#2434c759" : "#30ff453a"
         border.width: 2
         border.color: allowed ? "#34c759" : "#ff453a"
+        opacity: dragged !== null ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity {
+            enabled: !AppTheme.reduceMotion
+            NumberAnimation {
+                // Appear promptly, leave a little faster: the highlight should
+                // never trail the card that is landing.
+                // motion-exception: Drop-preview fade follows the landing card; retain its shortened release.
+                duration: widgetDropPreview.dragged !== null
+                    ? AppearanceTokens.motion.fastDuration
+                    : AppearanceTokens.motion.fastDuration * 0.6
+                easing.type: Easing.OutCubic
+            }
+        }
     }
 
     // Position/size saves replace widgetDefinitions. Keep delegate identity
@@ -662,6 +730,13 @@ PanelWindow {
             // 2026-10-18 用户改判：台前调度与桌面组件共存（台前调度在
             // 组件之上），组件不再随台前调度开启而隐藏
             readonly property bool moving: widgetDrag.active
+            // A Behavior gated on `moving` cannot see the end of the drag: the
+            // DragHandler's release handler runs before the binding to active is
+            // invalidated, so the release writes (offset reset, committed cell)
+            // would go straight through a disabled Behavior and the card would
+            // jump. This flag is assigned by that handler itself, so it is
+            // already exact when the writes happen.
+            property bool pointerHeld: false
             readonly property var dropPosition: WidgetLayout.snappedPosition(
                 x - root.leftInset, y - root.topInset,
                 displayColumns, displayRows, root.cellSize, root.gap,
@@ -670,8 +745,11 @@ PanelWindow {
                 modelData.id, dropPosition.column, dropPosition.row,
                 displayColumns, displayRows, root.maximumWidgetColumns, root.usableRows)
             visible: placement !== null
+            // Desktop widgets are part of the login arrival, not a static
+            // layer that appears before the wallpaper, bar and dock.
+            opacity: StartupReveal.widgetProgress
+            enabled: StartupReveal.widgetProgress > 0
             z: widgetDrag.active || resizeHandle.resizing ? 120 : (root.editMode ? 20 : 1)
-            scale: widgetDrag.active ? 1.035 : 1
             // The clock is the one card whose glass outline is a shape rather
             // than a rectangle: it draws MaterialFlower, so its surface has to
             // be the flower itself — no card fill, no rectangular KWin material,
@@ -685,36 +763,134 @@ PanelWindow {
             // SurfaceShape listens to Item geometry and scale changes, not
             // Translate.x/y. Move the anchor itself so the native glass and
             // the QML content publish the same position on every drag frame.
-            x: root.leftInset + (placement?.column ?? 0) * (root.cellSize + root.gap) + dragOffsetX
-            y: root.topInset + (placement?.row ?? 0) * (root.cellSize + root.gap) + dragOffsetY
-            readonly property int displayColumns: resizeHandle.resizing
-                ? resizeHandle.previewColumns : (placement?.columns ?? 1)
-            readonly property int displayRows: resizeHandle.resizing
-                ? resizeHandle.previewRows : (placement?.rows ?? 1)
-            width: root.spanSize(displayColumns)
-            height: root.spanSize(displayRows)
-            Behavior on x {
-                enabled: !card.moving
-                NumberAnimation { duration: AppearanceTokens.motion.normalDuration; easing.type: AppearanceTokens.motion.standardEasing }
-            }
-            Behavior on y {
-                enabled: !card.moving
-                NumberAnimation { duration: AppearanceTokens.motion.normalDuration; easing.type: AppearanceTokens.motion.standardEasing }
-            }
-            Behavior on width {
-                enabled: !resizeHandle.resizing
-                NumberAnimation { duration: AppearanceTokens.motion.normalDuration; easing.type: AppearanceTokens.motion.standardEasing }
-            }
-            Behavior on height {
-                enabled: !resizeHandle.resizing
-                NumberAnimation { duration: AppearanceTokens.motion.normalDuration; easing.type: AppearanceTokens.motion.standardEasing }
-            }
-            Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
+            //
+            // Geometry runs through frame-synchronised springs instead of
+            // Behaviors on these bindings: Qt's SpringAnimation integrates at a
+            // fixed 16 ms step, so on a 240 Hz output a released card moved in
+            // ~60 Hz quanta while the compositor kept presenting every frame.
+            readonly property real targetX: root.leftInset
+                + (placement?.column ?? 0) * (root.cellSize + root.gap) + dragOffsetX
+            readonly property real targetY: root.topInset
+                + (placement?.row ?? 0) * (root.cellSize + root.gap) + dragOffsetY
+            // The card and every widget inside it lay themselves out for the
+            // cell size they have committed to, never for the mid-drag preview:
+            // switching a widget to its other layout at the halfway point made
+            // the contents jump while the corner was still moving. The preview
+            // span only drives the resize readout and the corner itself.
+            readonly property int displayColumns: placement?.columns ?? 1
+            readonly property int displayRows: placement?.rows ?? 1
+            // While the corner is held, the card follows the magnetised
+            // pointer position; the moment it is released the size switches to
+            // the committed cell and the spring takes it there.
+            readonly property real targetWidth: resizeHandle.resizing
+                ? resizeHandle.previewWidth : root.spanSize(displayColumns)
+            readonly property real targetHeight: resizeHandle.resizing
+                ? resizeHandle.previewHeight : root.spanSize(displayRows)
+            // The lift belongs to the same motion family as the drop, so the
+            // card does not land while it is still shrinking on another curve.
+            readonly property real targetScale: widgetDrag.active ? 1.035 : 1
 
+            x: springX.value
+            y: springY.value
+            width: springWidth.value
+            height: springHeight.value
+            // Keep the login arrival scale independent of the drag spring.
+            // SurfaceShape follows this scale together with the QML content.
+            scale: springScale.value * (0.97 + 0.03 * StartupReveal.widgetProgress)
+
+            // A held pointer owns the value one-to-one (follow) and the same
+            // spring keeps its last velocity when the card is released, so the
+            // momentum of the drag carries into the cell instead of stopping
+            // dead. The move spring is critically damped: a long drop must not
+            // overshoot past the screen edge.
+            MotionSpring {
+                id: springX
+                target: card.targetX
+                follow: card.pointerHeld
+                enabled: !AppTheme.reduceMotion
+                angularFrequency: AppearanceTokens.motion.widgetMoveAngularFrequency
+                dampingRatio: AppearanceTokens.motion.widgetMoveDampingRatio
+                epsilon: AppearanceTokens.motion.widgetMoveEpsilon
+            }
+            MotionSpring {
+                id: springY
+                target: card.targetY
+                follow: card.pointerHeld
+                enabled: !AppTheme.reduceMotion
+                angularFrequency: AppearanceTokens.motion.widgetMoveAngularFrequency
+                dampingRatio: AppearanceTokens.motion.widgetMoveDampingRatio
+                epsilon: AppearanceTokens.motion.widgetMoveEpsilon
+            }
+            MotionSpring {
+                id: springWidth
+                target: card.targetWidth
+                follow: resizeHandle.resizing
+                enabled: !AppTheme.reduceMotion
+                angularFrequency: AppearanceTokens.motion.widgetResizeAngularFrequency
+                dampingRatio: AppearanceTokens.motion.widgetResizeDampingRatio
+                epsilon: AppearanceTokens.motion.widgetResizeEpsilon
+            }
+            MotionSpring {
+                id: springHeight
+                target: card.targetHeight
+                follow: resizeHandle.resizing
+                enabled: !AppTheme.reduceMotion
+                angularFrequency: AppearanceTokens.motion.widgetResizeAngularFrequency
+                dampingRatio: AppearanceTokens.motion.widgetResizeDampingRatio
+                epsilon: AppearanceTokens.motion.widgetResizeEpsilon
+            }
+            MotionSpring {
+                id: springScale
+                target: card.targetScale
+                enabled: !AppTheme.reduceMotion
+                angularFrequency: AppearanceTokens.motion.widgetMoveAngularFrequency
+                dampingRatio: AppearanceTokens.motion.widgetMoveDampingRatio
+                epsilon: AppearanceTokens.motion.widgetGripEpsilon
+            }
+            // The resize readout lifts with the grab on the same frame clock.
+            MotionSpring {
+                id: springReadoutScale
+                target: readout.visible ? 1.0 : 0.86
+                enabled: !AppTheme.reduceMotion
+                angularFrequency: AppearanceTokens.motion.widgetGripAngularFrequency
+                dampingRatio: AppearanceTokens.motion.widgetGripDampingRatio
+                epsilon: AppearanceTokens.motion.widgetGripEpsilon
+            }
+            // One frame callback advances every channel, and it stops as soon
+            // as all of them have settled, so idle cards cost nothing.
+            FrameAnimation {
+                running: springX.animating || springY.animating
+                    || springWidth.animating || springHeight.animating
+                    || springScale.animating || springReadoutScale.animating
+                onTriggered: {
+                    springX.advance(frameTime)
+                    springY.advance(frameTime)
+                    springWidth.advance(frameTime)
+                    springHeight.advance(frameTime)
+                    springScale.advance(frameTime)
+                    springReadoutScale.advance(frameTime)
+                }
+            }
+            // Placement arrives asynchronously at startup and whenever a widget
+            // is shown again: prime to the cell there instead of springing in
+            // from the window origin.
+            onVisibleChanged: {
+                springX.snap()
+                springY.snap()
+                springWidth.snap()
+                springHeight.snap()
+                springScale.snap()
+                springReadoutScale.snap()
+            }
+
+            // A right click is how a card enters editing, so a second right
+            // click has to leave it again. Toggling keeps one gesture as the
+            // single way in and out instead of re-requesting the state the
+            // desktop is already in.
             TapHandler {
                 acceptedButtons: Qt.RightButton
                 gesturePolicy: TapHandler.ReleaseWithinBounds
-                onTapped: root.enterWidgetEditMode(false)
+                onTapped: root.toggleWidgetEditMode()
             }
 
             DragHandler {
@@ -730,9 +906,11 @@ PanelWindow {
                 }
                 onActiveChanged: {
                     if (active) {
+                        card.pointerHeld = true
                         root.activeDragCard = card
                         return
                     }
+                    card.pointerHeld = false
                     const allowed = root.editMode && card.dropAllowed
                     const destination = card.dropPosition
                     const id = card.modelData.id
@@ -782,11 +960,11 @@ PanelWindow {
                 anchors { top: parent.top; left: parent.left; margins: 8 }
                 width: 26; height: 26; radius: 13
                 color: "#ff453a"
-                Text {
+                BundledIcon {
                     anchors.centerIn: parent
-                    text: "−"
+                    name: "desktop.widget.remove"
                     color: "white"
-                    font { pixelSize: 18; weight: Font.Bold }
+                    size: 18
                 }
                 TapHandler {
                     onTapped: AppearanceConfigService.setDeskCenterWidgetVisible(
@@ -801,6 +979,7 @@ PanelWindow {
                 anchors { right: parent.right; bottom: parent.bottom; margins: 5 }
                 cellSize: root.cellSize
                 gap: root.gap
+                animate: !AppTheme.reduceMotion
                 previewAllowed: card.placement !== null && WidgetLayout.canPlace(
                     root.placements, card.modelData.id, card.placement.column, card.placement.row,
                     previewColumns, previewRows, root.maximumWidgetColumns, root.usableRows)
@@ -810,6 +989,7 @@ PanelWindow {
             }
 
             Rectangle {
+                id: readout
                 z: 81
                 visible: resizeHandle.resizing
                 anchors.centerIn: parent
@@ -817,10 +997,13 @@ PanelWindow {
                 height: 32
                 radius: 12
                 color: resizeHandle.previewAllowed ? "#b0000000" : "#c0a02020"
+                // The readout lands with the grab instead of blinking on, so the
+                // eye is already on the corner when the size starts to change.
+                scale: springReadoutScale.value
                 Text {
                     id: resizePreview
                     anchors.centerIn: parent
-                    text: card.displayColumns + " × " + card.displayRows
+                    text: resizeHandle.previewColumns + " × " + resizeHandle.previewRows
                     color: "white"
                     font { pixelSize: 13; weight: Font.DemiBold }
                 }
@@ -833,6 +1016,12 @@ PanelWindow {
                 id: widgetContentLayer
                 objectName: "widget-content-layer"
                 anchors.fill: parent
+                // Editing is spatial: while widgets are being arranged their
+                // contents must not answer clicks. A live content layer turned a
+                // drag or a stray click on the music card into a launch of the
+                // app it was showing, and a second copy of a running player is
+                // what crashed QQ Music (two instances share one profile).
+                enabled: !root.editMode
                 // The clock resolves monochrome ink in its face. Keep its text
                 // out of the extra saturation texture so it renders at the
                 // window's resolution. Other glass artwork is desaturated.
@@ -857,7 +1046,7 @@ PanelWindow {
                 // including while a newly loaded card grows from zero height.
                 property real pageProgress: root.timerView ? 1 : 0
                 Behavior on pageProgress {
-                    NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                    NumberAnimation { duration: AppearanceTokens.motion.slow.duration; easing.type: AppearanceTokens.motion.enterCurve }
                 }
 
                 Item {
@@ -900,16 +1089,13 @@ PanelWindow {
                     anchors { right: parent.right; bottom: parent.bottom; rightMargin: 12; bottomMargin: 12 }
 	                    color: "transparent"
                     border.width: 0
-                    Image {
+                    BundledIcon {
                         anchors.centerIn: parent
                         anchors.verticalCenterOffset: -1
                         width: 17
                         height: 17
-                        source: BundledIcons.source("countdown")
-                        sourceSize.width: 26
-                        sourceSize.height: 26
-                        fillMode: Image.PreserveAspectFit
-                        smooth: true
+                        name: "desktop.timer"
+
                     }
                     MouseArea {
                         id: timerPointer
@@ -970,7 +1156,7 @@ PanelWindow {
                             anchors.centerIn: parent
                             text: root.formattedTimer()
                             color: "white"
-                            font { family: "SF Pro Display"; pixelSize: Math.min(16, timerDial.width * 0.15); weight: Font.Medium }
+                            font { family: AppearanceTokens.typography.displayFamily; pixelSize: Math.min(16, timerDial.width * 0.15); weight: Font.Medium }
                         }
                     }
                     Row {
@@ -978,24 +1164,12 @@ PanelWindow {
                         anchors.horizontalCenter: parent.horizontalCenter
                         y: timerDial.y + timerTimeText.y - height - 2
                         spacing: 5
-                        Canvas {
+                        BundledIcon {
                             id: timerBell
                             objectName: "timer-end-bell"
-                            width: 14
-                            height: 16
-                            readonly property color strokeColor: AppearanceTokens.content.onBackdrop
-                                ? "#ffffff" : "#ffb028"
-                            // The clock bypasses the ancestor saturation layer.
-                            // Invalidate this cached artwork when its ink changes.
-                            onStrokeColorChanged: requestPaint()
-                            onPaint: {
-                                const ctx = getContext("2d")
-	                                ctx.reset(); ctx.strokeStyle = timerBell.strokeColor.toString(); ctx.lineWidth = 1.3; ctx.lineCap = "round"
-                                ctx.beginPath(); ctx.moveTo(3, 10); ctx.quadraticCurveTo(4, 8.7, 4, 6.4)
-                                ctx.quadraticCurveTo(4, 3.8, 7, 3.8); ctx.quadraticCurveTo(10, 3.8, 10, 6.4)
-                                ctx.quadraticCurveTo(10, 8.7, 11, 10); ctx.lineTo(3, 10); ctx.stroke()
-                                ctx.beginPath(); ctx.moveTo(5.3, 12); ctx.lineTo(8.7, 12); ctx.stroke()
-                            }
+                            width: 14; height: 16
+                            name: "desktop.timer.notification"
+                            color: AppearanceTokens.content.onBackdrop ? "#ffffff" : "#ffb028"
                         }
                         Text {
                             text: I18n.tr("Ends at %1").arg(root.formattedTimerEndTime())
@@ -1079,11 +1253,11 @@ PanelWindow {
                             }
                         }
                     }
-                    Text {
+                    BundledIcon {
                         anchors { left: parent.left; top: parent.top; leftMargin: 10; topMargin: 7 }
-                        text: "×"
+                        name: "desktop.timer.close"
                         color: Qt.rgba(1, 1, 1, 0.74)
-                        font { pixelSize: 18; weight: Font.Light }
+                        size: 18
                         MouseArea {
                             anchors.fill: parent
                             anchors.margins: -6
@@ -1184,35 +1358,25 @@ PanelWindow {
                         anchors.fill: parent
                         visible: WeatherTheme.category(WeatherService.weatherCode) === "partlyCloudy"
                             || WeatherTheme.category(WeatherService.weatherCode) === "overcast"
-                        Image {
+                        BundledIcon {
                             id: deskCloudBack
                             width: parent.width * 0.34
                             height: parent.height * 0.36
                             y: 2
                             x: -width
-                            source: BundledIcons.source("weather-cloud")
-                            fillMode: Image.PreserveAspectFit
-	                            smooth: true
-	                            layer.enabled: AppearanceConfigService.widgetStyle === "glass"
-	                            layer.effect: MultiEffect {
-                                saturation: -1.0
-                                colorization: 0
-	                            }
+                            name: "weather.cloud"
+
+
                         }
-                        Image {
+                        BundledIcon {
                             id: deskCloudFront
                             width: parent.width * 0.30
                             height: parent.height * 0.29
                             y: parent.height * 0.18
                             x: parent.width
-                            source: BundledIcons.source("weather-cloud-wide")
-                            fillMode: Image.PreserveAspectFit
-	                            smooth: true
-	                            layer.enabled: AppearanceConfigService.widgetStyle === "glass"
-	                            layer.effect: MultiEffect {
-                                saturation: -1.0
-                                colorization: 0
-	                            }
+                            name: "weather.cloudWide"
+
+
                         }
                     }
 
@@ -1271,13 +1435,13 @@ PanelWindow {
                         }
                     }
 
-                    Text {
+                    BundledIcon {
                         anchors { right: parent.right; top: parent.top; rightMargin: 26; topMargin: 8 }
                         visible: WeatherTheme.isStorm(WeatherService.weatherCode)
-                        text: "ϟ"
+                        name: "weather.lightning"
 	                        color: AppearanceTokens.content.ink("#e0ccff", 0.68)
                         opacity: 0.68
-                        font { family: "SF Pro Display"; pixelSize: 42; weight: Font.DemiBold }
+                        size: 42
                     }
                 }
                 Text {
@@ -1294,7 +1458,7 @@ PanelWindow {
                     // short cards never push the glyph box into the forecast row
                     // (issue #205). Tall cards keep the authored 42 px.
                     font {
-                        family: "SF Pro Display"
+                        family: AppearanceTokens.typography.displayFamily
                         pixelSize: Math.min(42, parent.height * 0.32,
                             Math.max(16, (parent.height - weeklyForecast.height - 38) / 1.5))
                         weight: Font.Normal
@@ -1441,7 +1605,7 @@ PanelWindow {
                 sourceComponent: Component {
                     Item {
                 anchors.fill: parent
-                Image { anchors.fill: parent; source: BundledIcons.source("default-cover"); fillMode: Image.PreserveAspectCrop; asynchronous: true }
+                Image { anchors.fill: parent; source: BundledIcons.source("media.coverFallback"); fillMode: Image.PreserveAspectCrop; asynchronous: true }
                 Rectangle {
                     anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
                     height: 28
@@ -1488,7 +1652,7 @@ PanelWindow {
                     readonly property real storageValue: systemContent.metrics.diskTotalBytes > 0
                         ? systemContent.metrics.diskUsedBytes / systemContent.metrics.diskTotalBytes : 0
                     readonly property var labels: ["CPU", I18n.tr("Memory"), I18n.tr("Storage")]
-                    readonly property var icons: ["cpu", "memory", "drive-harddisk"]
+                    readonly property var icons: ["system.cpu", "system.memory", "system.disk"]
                     readonly property var values: [cpuValue, memoryValue, storageValue]
                     readonly property var colors: AppearanceTokens.content.onBackdrop
                         ? [IconAppearanceService.glassContentColor().toString(),
@@ -1576,7 +1740,7 @@ PanelWindow {
                             text: activityRings.labels[activityRings.hoveredMetric] + " "
                                 + Math.round(activityRings.values[activityRings.hoveredMetric] * 100) + "%"
 	                            color: AppearanceTokens.content.ink("#7d7782")
-                            font { family: "SF Pro Display"; pixelSize: Math.max(8, activityRings.width * 0.075); weight: Font.DemiBold }
+                            font { family: AppearanceTokens.typography.displayFamily; pixelSize: Math.max(8, activityRings.width * 0.075); weight: Font.DemiBold }
                         }
                     }
 
@@ -1617,7 +1781,7 @@ PanelWindow {
                         anchors.centerIn: parent
                         spacing: Math.max(4, temperatureSummary.width * 0.04)
                         BundledIcon {
-                            name: "temperature"
+                            name: "system.temperature"
                             color: AppearanceTokens.content.ink("#7d7782")
                             size: Math.max(12, temperatureSummary.height * 0.54)
                             anchors.verticalCenter: parent.verticalCenter
@@ -1628,7 +1792,7 @@ PanelWindow {
                                 text: temperatureSummary.available
                                     ? Math.round(temperatureSummary.currentC) + "°" : "--"
 	                                color: AppearanceTokens.content.ink("#7d7782")
-                                font { family: "SF Pro Display"; pixelSize: Math.max(10, temperatureSummary.height * 0.42); weight: Font.DemiBold }
+                                font { family: AppearanceTokens.typography.displayFamily; pixelSize: Math.max(10, temperatureSummary.height * 0.42); weight: Font.DemiBold }
                             }
                             Text {
                                 text: I18n.tr("Now")
@@ -1648,7 +1812,7 @@ PanelWindow {
                                 text: temperatureSummary.available
                                     ? Math.round(temperatureSummary.maximum5MinuteC) + "°" : "--"
 	                                color: AppearanceTokens.content.ink("#7d7782")
-                                font { family: "SF Pro Display"; pixelSize: Math.max(10, temperatureSummary.height * 0.42); weight: Font.DemiBold }
+                                font { family: AppearanceTokens.typography.displayFamily; pixelSize: Math.max(10, temperatureSummary.height * 0.42); weight: Font.DemiBold }
                             }
                             Text {
                                 text: I18n.tr("High")
@@ -1766,7 +1930,7 @@ PanelWindow {
                                     : I18n.tr("Uptime: %1").arg(root.formatDuration(
                                         root.activityUsage.uptimeByDay[root.activityUsage.dayKey(Date.now())] ?? 0))
 	                                        color: AppearanceTokens.content.ink(Qt.rgba(1, 1, 1, 0.86), 0.86)
-                                font { family: "SF Pro Display"; pixelSize: 14; weight: Font.DemiBold }
+                                font { family: AppearanceTokens.typography.displayFamily; pixelSize: 14; weight: Font.DemiBold }
                             }
                         }
                         Item {
@@ -1827,7 +1991,7 @@ PanelWindow {
                                     required property var modelData
                                     width: activityRightPane.width
                                     height: 16
-                                    IconImage {
+                                    AppIcon {
                                         id: appUsageIcon
                                         width: 12
                                         height: 12
@@ -1848,7 +2012,7 @@ PanelWindow {
                                         anchors { right: appUsageRow.right; verticalCenter: appUsageRow.verticalCenter }
                                         text: root.formatDuration(modelData.seconds)
 	                                        color: AppearanceTokens.content.ink(Qt.rgba(1, 1, 1, 0.46), 0.46)
-                                        font { family: "SF Pro Display"; pixelSize: 9 }
+                                        font { family: AppearanceTokens.typography.displayFamily; pixelSize: 9 }
                                     }
                                     Text {
                                         anchors { left: appUsageIcon.right; right: appDurationText.left; verticalCenter: appUsageRow.verticalCenter; leftMargin: 6; rightMargin: 6 }
@@ -1923,12 +2087,12 @@ PanelWindow {
                     Item {
                 id: musicContent
                 anchors.fill: parent
-                readonly property var player: DockMprisService.activePlayer
+                readonly property var player: MediaService.activePlayer
                 readonly property bool hasPlayer: player !== null
                 readonly property url artworkSource: {
-                    const revision = DockMprisService.metadataRevision
+                    const revision = MediaService.metadataRevision
                     return player?.trackArtUrl
-                        ? player.trackArtUrl : BundledIcons.source("default-cover")
+                        ? player.trackArtUrl : BundledIcons.source("media.coverFallback")
                 }
                 readonly property real safeLength: player?.lengthSupported && player.length > 0
                     ? player.length : 0
@@ -1941,18 +2105,30 @@ PanelWindow {
                     onClicked: {
                         // Raise the displayed player; ListenFree owns the
                         // music entry when no MPRIS session is available.
-                        const player = DockMprisService.activePlayer
-                        if (player) {
-                            if (player.canRaise) {
-                                player.raise()
-                                return
-                            }
-                            if (player.desktopEntry && AppActionService.launchById(player.desktopEntry, []))
-                                return
-                            // Do not start a different app for the displayed track.
+                        const player = MediaService.activePlayer
+                        if (!player) {
+                            AppActionService.launchById("listenfree", [])
                             return
                         }
-                        AppActionService.launchById("listenfree", [])
+                        if (player.canRaise) {
+                            player.raise()
+                            return
+                        }
+                        // Not every player offers Raise (the QQ Music bridge
+                        // reports CanRaise=false), so bring up the window that
+                        // already exists. Launching from here started a second
+                        // copy of a running app, and two QQ Music instances
+                        // share one profile and crash each other.
+                        const windows = player.desktopEntry
+                            ? WindowService.windowsForApp(player.desktopEntry) : []
+                        if (windows.length > 0) {
+                            WindowService.activateWindow(windows[0].windowId)
+                            return
+                        }
+                        if (player.desktopEntry
+                                && AppActionService.launchById(player.desktopEntry, []))
+                            return
+                        // Do not start a different app for the displayed track.
                     }
                 }
 
@@ -2011,10 +2187,11 @@ PanelWindow {
                             x: offsets[index]
                             text: modelData
                             color: AppearanceTokens.surface.pick(AppearanceTokens.colors.tertiary, Qt.rgba(1, 1, 1, 0.60))
-                            font { family: "SF Pro Display"; pixelSize: index === 1 ? 18 : 14; weight: Font.DemiBold }
+                            font { family: AppearanceTokens.typography.displayFamily; pixelSize: index === 1 ? 18 : 14; weight: Font.DemiBold }
                             SequentialAnimation on y {
                                 running: musicNotes.running
                                 loops: Animation.Infinite
+                                // motion-exception: Music-note loops keep their phase, lifetime and fade envelope.
                                 PauseAnimation { duration: index * 620 }
                                 NumberAnimation { from: musicNotes.height - 14; to: -20; duration: 2200 + index * 180; easing.type: Easing.OutSine }
                             }
@@ -2063,8 +2240,16 @@ PanelWindow {
 	                                visible: musicContent.hasPlayer
                                 source: musicContent.artworkSource
                                 fillMode: Image.PreserveAspectCrop
-                                sourceSize.width: Math.max(1, Math.ceil(width * 2))
-                                sourceSize.height: Math.max(1, Math.ceil(height * 2))
+                                // Decode once at a size the layout can never
+                                // exceed. Binding sourceSize to the animated
+                                // width re-decoded the cover on every frame of a
+                                // resize and left it not-Ready for most of them
+                                // (measured: 29 of 31 frames), which reads as the
+                                // cover flickering while the card grows.
+                                readonly property int decodeSize: Math.max(1,
+                                    Math.ceil(root.cellSize * 2))
+                                sourceSize.width: decodeSize
+                                sourceSize.height: decodeSize
                                 asynchronous: true
                                 cache: false
                                 smooth: true
@@ -2082,12 +2267,12 @@ PanelWindow {
                                 visible: false
                                 layer.enabled: true
                             }
-                            Text {
+                            BundledIcon {
                                 anchors.centerIn: parent
 	                                visible: !musicContent.hasPlayer
-                                text: "♫"
+                                name: "media.fallback"
                                 color: Qt.rgba(1, 1, 1, 0.46)
-                                font { family: "SF Pro Display"; pixelSize: musicArtwork.width * 0.42 }
+                                size: musicArtwork.width * 0.42
                             }
                         }
                     }
@@ -2120,7 +2305,7 @@ PanelWindow {
                         KosLyricLine {
                             id: musicLyric
                             anchors { left: parent.left; right: parent.right; top: musicArtist.bottom; topMargin: 5 }
-                            text: DockMprisService.loading ? DockMprisService.playbackStatus : DockMprisService.currentLyric
+                            text: MediaService.loading ? MediaService.playbackStatus : MediaService.currentLyric
                             visible: !musicBody.compact && text.length > 0
                             elide: Text.ElideRight
                             horizontalAlignment: Text.AlignHCenter
@@ -2196,23 +2381,23 @@ PanelWindow {
                                 model: 4
                                 delegate: DeskMediaButton {
                                     required property int index
-                                    visible: index !== 3 || DockMprisService.lyricsAvailable
+                                    visible: index !== 3 || MediaService.lyricsAvailable
                                     primary: index === 1
-                                    busy: index === 1 && DockMprisService.loading
+                                    busy: index === 1 && MediaService.loading
                                     checkable: index === 3
                                     checked: index === 3
                                         && DeskCenterConfigService.desktopLyricsEnabled
-                                        && DockMprisService.desktopLyricsAllowed
-                                    iconName: index === 0 ? "media-previous"
-                                        : index === 2 ? "media-next"
-                                        : index === 3 ? "media-lyrics"
-                                        : musicContent.player?.isPlaying ? "media-pause" : "media-play"
+                                        && MediaService.desktopLyricsAllowed
+                                    iconName: index === 0 ? "media.previous"
+                                        : index === 2 ? "media.next"
+                                        : index === 3 ? "media.lyrics"
+                                        : musicContent.player?.isPlaying ? "media.pause" : "media.play"
                                     text: index === 0 ? I18n.tr("Previous")
                                         : index === 2 ? I18n.tr("Next")
-                                        : index === 3 ? (DockMprisService.desktopLyricsAllowed
+                                        : index === 3 ? (MediaService.desktopLyricsAllowed
                                             ? I18n.tr("Desktop Lyrics") : I18n.tr("Player has desktop lyrics off"))
                                         : musicContent.player?.isPlaying ? I18n.tr("Pause") : I18n.tr("Play")
-                                    enabled: index === 3 ? DockMprisService.desktopLyricsAllowed : (musicContent.hasPlayer
+                                    enabled: index === 3 ? MediaService.desktopLyricsAllowed : (musicContent.hasPlayer
                                         && (index === 0 ? (musicContent.player?.canGoPrevious ?? false)
                                             : index === 2 ? (musicContent.player?.canGoNext ?? false)
                                             : (musicContent.player?.canTogglePlaying ?? false)))
@@ -2221,9 +2406,9 @@ PanelWindow {
                                         ? IconAppearanceService.glassContentColor(0.88)
                                         : Qt.rgba(1, 1, 1, 0.88)
                                     onClicked: {
-                                        if (index === 0) DockMprisService.previous()
-                                        else if (index === 1) DockMprisService.togglePlayPause()
-                                        else if (index === 2) DockMprisService.next()
+                                        if (index === 0) MediaService.previous()
+                                        else if (index === 1) MediaService.togglePlayPause()
+                                        else if (index === 2) MediaService.next()
                                         else DeskCenterConfigService.updateDesktopLyricsEnabled(
                                             !DeskCenterConfigService.desktopLyricsEnabled)
                                     }
@@ -2269,7 +2454,7 @@ PanelWindow {
                                     else if (modelData.id === "refresh")
                                         WeatherService.refresh()
                                     else
-                                        DockMprisService.togglePlayPause()
+                                        MediaService.togglePlayPause()
                                 }
                             }
                         }
@@ -2405,7 +2590,7 @@ PanelWindow {
                             }
                             Text {
                                 visible: todoContent.tasks.length === 0
-                                    && PimWidgetService.state !== "not-installed"
+                                    && (PimWidgetService.ready || PimWidgetService.showFeedback)
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 // Only a ready snapshot can mean all tasks are done.
                                 // App installation is handled when the card is opened.
@@ -2509,7 +2694,7 @@ PanelWindow {
                     anchors { left: parent.left; top: parent.top; leftMargin: 15; topMargin: calendarContent.headerHeight + 7 }
                     text: I18n.fmt(calendarClock.dayDate, I18n.tr("d"))
 	                    color: AppearanceTokens.content.ink("#15151a")
-                    font { family: "SF Pro Display"; pixelSize: 32; weight: Font.DemiBold }
+                    font { family: AppearanceTokens.typography.displayFamily; pixelSize: 32; weight: Font.DemiBold }
                 }
                 Text {
                     anchors { left: parent.left; top: parent.top; leftMargin: 16; topMargin: calendarContent.headerHeight + 46 }
@@ -2535,8 +2720,7 @@ PanelWindow {
                         }
                     }
                     Text {
-                        visible: PimWidgetService.state !== "not-installed"
-                            && (!PimWidgetService.ready || !!IndependentAppWidgetService.launchErrors.calendar)
+                        visible: PimWidgetService.showFeedback
                         width: parent.width
                         text: PimWidgetService.errorMessage
                         maximumLineCount: 2
@@ -2732,6 +2916,7 @@ PanelWindow {
             property: "folderDropProgress"
             from: 0
             to: 1
+            // motion-exception: Folder-drop progress is the drag acceptance dwell timer.
             duration: 380
             easing.type: Easing.Linear
             onFinished: {
@@ -3172,13 +3357,8 @@ PanelWindow {
         }
 
         function iconFor(kind) {
-            if (kind === "folder") return "folder"
-            if (kind === "image") return "image-x-generic"
-            if (kind === "pdf") return "application-pdf"
-            if (kind === "code") return "text-x-script"
-            if (kind === "text") return "text-x-generic"
-            if (kind === "launcher") return "application-x-executable"
-            return "text-x-generic"
+            const type = ["folder", "image", "pdf", "code", "text", "launcher"].indexOf(kind) >= 0 ? kind : "text"
+            return "desktop.file." + type
         }
 
         function canChooseOpenWith(entry) {
@@ -3283,14 +3463,14 @@ PanelWindow {
 
         // ── Liquid context-menu data + builder ──
 
-        function _ctxSub(label, children, icon) {
-            return { icon: icon || "placeholder-dot", label: label, children: children }
+        function _ctxSub(label, children, role) {
+            return { icon: "desktop.menu." + role, label: label, children: children }
         }
-        function _ctxAct(label, cmd, icon) {
-            return { icon: icon || "placeholder-dot", label: label, cmd: cmd, enabled: true }
+        function _ctxAct(label, cmd) {
+            return { icon: "desktop.menu." + cmd, label: label, cmd: cmd, enabled: true }
         }
-        function _ctxCheck(label, cmd, value, checked, icon) {
-            return { icon: icon || "placeholder-dot", label: label, cmd: cmd,
+        function _ctxCheck(label, cmd, value, checked) {
+            return { icon: "desktop.menu." + cmd, label: label, cmd: cmd,
                 checkable: true, checked: checked, value: value, enabled: true }
         }
 
@@ -3302,7 +3482,7 @@ PanelWindow {
             [I18n.tr("🩷 Pink"), "#F783AC"], [I18n.tr("⚫ Gray"), "#868E96"]
             ]
             const EMOJI_CATS = [
-            { id: "frequent", label: I18n.tr("Frequent"), icon: "star", rows: [
+            { id: "frequent", label: I18n.tr("Frequent"), rows: [
                 ["📁 " + I18n.tr("Folder"), "📁"], ["📂 " + I18n.tr("Open folder"), "📂"],
                 ["🗂️ " + I18n.tr("Organized folder"), "🗂️"], ["📦 " + I18n.tr("Package"), "📦"],
                 ["⭐ " + I18n.tr("Star"), "⭐"], ["🔥 " + I18n.tr("Hot"), "🔥"],
@@ -3310,7 +3490,7 @@ PanelWindow {
                 ["✨ " + I18n.tr("Curated"), "✨"], [I18n.tr("📌 Pinned"), "📌"],
                 ["🎯 " + I18n.tr("Goal"), "🎯"], ["💎 " + I18n.tr("Collection"), "💎"]
             ] },
-            { id: "study", label: I18n.tr("Study"), icon: "bookmark", rows: [
+            { id: "study", label: I18n.tr("Study"), rows: [
                 ["📚 " + I18n.tr("Books"), "📚"], ["📖 " + I18n.tr("Reading"), "📖"],
                 ["✏️ " + I18n.tr("Notes"), "✏️"], ["📝 " + I18n.tr("Memo"), "📝"],
                 ["🎓 " + I18n.tr("Academic"), "🎓"], ["🔬 " + I18n.tr("Research"), "🔬"],
@@ -3318,7 +3498,7 @@ PanelWindow {
                 ["🖥️ " + I18n.tr("Workstation"), "🖥️"], ["📐 " + I18n.tr("Design"), "📐"],
                 ["🎨 " + I18n.tr("Creative"), "🎨"], ["🎵 " + I18n.tr("Music"), "🎵"]
             ] },
-            { id: "life", label: I18n.tr("Life"), icon: "home", rows: [
+            { id: "life", label: I18n.tr("Life"), rows: [
                 ["🏠 " + I18n.tr("Home"), "🏠"], ["🏡 " + I18n.tr("Homestead"), "🏡"],
                 ["🛒 " + I18n.tr("Shopping"), "🛒"], ["🍳 " + I18n.tr("Cooking"), "🍳"],
                 ["☕ " + I18n.tr("Coffee"), "☕"], ["🌿 " + I18n.tr("Plants"), "🌿"],
@@ -3326,7 +3506,7 @@ PanelWindow {
                 ["📷 " + I18n.tr("Photos"), "📷"], ["✈️ " + I18n.tr("Travel"), "✈️"],
                 ["🚗 " + I18n.tr("Commute"), "🚗"], ["💰 " + I18n.tr("Finance"), "💰"]
             ] },
-            { id: "symbols", label: I18n.tr("Symbols"), icon: "star", rows: [
+            { id: "symbols", label: I18n.tr("Symbols"), rows: [
                 ["🔵 " + I18n.tr("Blue dot"), "🔵"], ["🟢 " + I18n.tr("Green dot"), "🟢"],
                 ["🟡 " + I18n.tr("Yellow dot"), "🟡"], ["🟠 " + I18n.tr("Orange dot"), "🟠"],
                 ["🔴 " + I18n.tr("Red dot"), "🔴"], ["🟣 " + I18n.tr("Purple dot"), "🟣"],
@@ -3343,23 +3523,23 @@ PanelWindow {
             const items = []
 
             if (e) {
-                items.push(_ctxAct(defaultOpenText(), "openEntry", "folder-open"))
+                items.push(_ctxAct(defaultOpenText(), "openEntry"))
                 if (selectedEntries().length === 1)
-                    items.push(_ctxAct(I18n.tr("Rename"), "rename", "edit-rename"))
+                    items.push(_ctxAct(I18n.tr("Rename"), "rename"))
 
                 // 自定义外观 applies to every desktop entry. The path-based
                 // storage retains the setting across filesystem snapshots.
                 const colorKids = FOLDER_COLORS.map(([label, val]) =>
-                    _ctxCheck(label, "setColor", val, curColor === val, "color-picker"))
-                const appearKids = [ _ctxSub(I18n.tr("Color"), colorKids, "color-picker") ]
+                    _ctxCheck(label, "setColor", val, curColor === val))
+                const appearKids = [ _ctxSub(I18n.tr("Color"), colorKids, "color") ]
                 for (const cat of EMOJI_CATS) {
-                    const rows = [_ctxCheck(I18n.tr("None"), "setEmoji", "", curEmoji === "", "placeholder-dot")]
+                    const rows = [_ctxCheck(I18n.tr("None"), "setEmoji", "", curEmoji === "")]
                         .concat(cat.rows.map(([label, em]) =>
-                            _ctxCheck(label, "setEmoji", em, curEmoji === em, "placeholder-dot")))
-                    appearKids.push(_ctxSub(cat.label, rows, cat.icon))
+                            _ctxCheck(label, "setEmoji", em, curEmoji === em)))
+                    appearKids.push(_ctxSub(cat.label, rows, "emoji." + cat.id))
                 }
-                appearKids.push(_ctxAct(I18n.tr("Remove customization"), "removeCustom", "edit-clear"))
-                items.push(_ctxSub(I18n.tr("Customize Appearance"), appearKids, "customize-appearance"))
+                appearKids.push(_ctxAct(I18n.tr("Remove customization"), "removeCustom"))
+                items.push(_ctxSub(I18n.tr("Customize Appearance"), appearKids, "appearance"))
 
                 // 打开方式（动态）
                 if (canChooseOpenWith(e)) {
@@ -3367,56 +3547,53 @@ PanelWindow {
                     for (let i = 0; i < 6; i++) {
                         const id = openWithIdAt(i)
                         if (id)
-                            owKids.push({ icon: "placeholder-dot", label: applicationName(id), cmd: "openWith", value: id, enabled: true })
+                            owKids.push({ icon: "desktop.menu.openWith", label: applicationName(id), cmd: "openWith", value: id, enabled: true })
                     }
-                    owKids.push(_ctxAct(I18n.tr("Other applications…"), "openWithMore", ""))
-                    items.push(_ctxSub(I18n.tr("Open With"), owKids, "open-with"))
+                    owKids.push(_ctxAct(I18n.tr("Other applications…"), "openWithMore"))
+                    items.push(_ctxSub(I18n.tr("Open With"), owKids, "openWith"))
                 }
 
-                items.push(_ctxAct(I18n.tr("Copy"), "copy", "edit-copy"))
-                items.push(_ctxAct(I18n.tr("Cut"), "cut", "edit-cut"))
-                items.push(_ctxAct(I18n.tr("Move to Trash"), "trash", "user-trash"))
-                items.push(_ctxAct(I18n.tr("Open in File Manager"), "open", "folder-open"))
+                items.push(_ctxAct(I18n.tr("Copy"), "copy"))
+                items.push(_ctxAct(I18n.tr("Cut"), "cut"))
+                items.push(_ctxAct(I18n.tr("Move to Trash"), "trash"))
+                items.push(_ctxAct(I18n.tr("Open in File Manager"), "open"))
             } else {
                 // desktop background
-                items.push(_ctxAct(I18n.tr("Add Widgets…"), "addWidgets", "arrange"))
-                items.push(_ctxAct(I18n.tr("Edit Widgets"), "editWidgets", "edit-rename"))
-                items.push(_ctxAct(I18n.tr("New File"), "newFile", "document-new"))
-                items.push(_ctxAct(I18n.tr("New Folder"), "newFolder", "folder-new"))
-                items.push(_ctxAct(I18n.tr("Paste"), "paste", "edit-paste"))
+                items.push(_ctxAct(I18n.tr("Add Widgets…"), "addWidgets"))
+                items.push(_ctxAct(I18n.tr("Edit Widgets"), "editWidgets"))
+                items.push(_ctxAct(I18n.tr("New File"), "newFile"))
+                items.push(_ctxAct(I18n.tr("New Folder"), "newFolder"))
+                items.push(_ctxAct(I18n.tr("Paste"), "paste"))
                 const arrange = [
-                    _ctxAct(I18n.tr("By Name"), "arrangeByName", "sort-name"),
-                    _ctxAct(I18n.tr("By Type"), "arrangeByType", "sort-type"),
-                    _ctxAct(I18n.tr("By Modified (newest)"), "arrangeModifiedNew", "clock"),
-                    _ctxAct(I18n.tr("By Modified (oldest)"), "arrangeModifiedOld", "clock")
+                    _ctxAct(I18n.tr("By Name"), "arrangeByName"),
+                    _ctxAct(I18n.tr("By Type"), "arrangeByType"),
+                    _ctxAct(I18n.tr("By Modified (newest)"), "arrangeModifiedNew"),
+                    _ctxAct(I18n.tr("By Modified (oldest)"), "arrangeModifiedOld")
                 ]
                 items.push(_ctxSub(I18n.tr("Arrange"), arrange, "arrange"))
-                items.push(_ctxAct(I18n.tr("Reset icon order"), "resetLayout", "reset-layout"))
+                items.push(_ctxAct(I18n.tr("Reset icon order"), "resetLayout"))
                 items.push(_ctxCheck(I18n.tr("Show file extensions"), "toggleExtensions", null,
-                    desktopLayout.showExtensions, "text-x-generic"))
+                    desktopLayout.showExtensions))
                 const sizeKids = [[40, I18n.tr("Small")], [56, I18n.tr("Medium")], [72, I18n.tr("Large")]]
                     .map(([px, l]) => _ctxCheck(l, "setIconSize", px,
-                        iconSize === px, "placeholder-dot"))
-                items.push(_ctxSub(I18n.tr("Icon Size"), sizeKids, "image-x-generic"))
+                        iconSize === px))
+                items.push(_ctxSub(I18n.tr("Icon Size"), sizeKids, "iconSize"))
                 const spacingKids = [
                     ["comfortable", I18n.tr("Comfortable")], ["compact", I18n.tr("Compact")],
                     ["dense", I18n.tr("Dense")]]
                     .map(([value, label]) => _ctxCheck(label, "setIconSpacing", value,
-                        desktopLayout.iconSpacing === value, "placeholder-dot"))
-                items.push(_ctxSub(I18n.tr("Icon Spacing"), spacingKids, "arrange"))
+                        desktopLayout.iconSpacing === value))
+                items.push(_ctxSub(I18n.tr("Icon Spacing"), spacingKids, "iconSpacing"))
                 // Same entries as the control center's session list, routed
-            // through it so the destructive ones reuse its confirm dialog.
-            // Icon names are BundledIcons registry keys -- the role names the
-            // panel passes get mapped by roleName() there, this menu passes
-            // the mapped keys verbatim.
-            items.push(_ctxSub(I18n.tr("Power Off or Log Out"), [
-                _ctxAct(I18n.tr("Lock Screen"), "lock", "lock"),
-                _ctxAct(I18n.tr("Sleep"), "suspend", "system-suspend"),
-                _ctxAct(I18n.tr("Switch User"), "switch", "system-switch-user"),
-                _ctxAct(I18n.tr("Log Out"), "logout", "system-log-out"),
-                _ctxAct(I18n.tr("Restart"), "reboot", "system-reboot"),
-                _ctxAct(I18n.tr("Power Off"), "poweroff", "power")
-            ], "power"))
+                // through it so the destructive ones reuse its confirm dialog.
+                items.push(_ctxSub(I18n.tr("Power Off or Log Out"), [
+                    _ctxAct(I18n.tr("Lock Screen"), "lock"),
+                    _ctxAct(I18n.tr("Sleep"), "suspend"),
+                    _ctxAct(I18n.tr("Switch User"), "switch"),
+                    _ctxAct(I18n.tr("Log Out"), "logout"),
+                    _ctxAct(I18n.tr("Restart"), "reboot"),
+                    _ctxAct(I18n.tr("Power Off"), "poweroff")
+                ], "session"))
             }
             return items
         }
@@ -3458,6 +3635,15 @@ PanelWindow {
             case "setIconSize": setIconSize(v); break
             case "setIconSpacing": setIconSpacing(v); break
             case "refresh": triggerContextAction("refresh"); break
+            // Session entries live in a submenu; without these the menu closes
+            // and the command is dropped.
+            case "lock":
+            case "suspend":
+            case "switch":
+            case "logout":
+            case "reboot":
+            case "poweroff":
+                triggerContextAction(cmd); break
             }
         }
 
@@ -3628,7 +3814,7 @@ PanelWindow {
             border { width: 1; color: Qt.rgba(1, 1, 1, 0.34) }
             z: 1
             Behavior on opacity {
-                NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
+                NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve }
             }
         }
 
@@ -3644,6 +3830,7 @@ PanelWindow {
             cellWidth: desktopFileGrid.itemWidth
             cellHeight: desktopFileGrid.itemHeight
             displaced: Transition {
+                // motion-exception: Grid displacement retains Qt default timing and its drag reflow curve.
                 NumberAnimation { properties: "x,y"; easing.type: Easing.OutQuad }
             }
             model: DelegateModel {
@@ -3693,7 +3880,7 @@ PanelWindow {
                         // Theme icon: synchronous, see AppIcon.qml.
                         asynchronous: false
                         source: SystemIconResolver.sourceFromCandidates(
-                            [desktopFileGrid.iconFor(modelData.kind)], "text-x-generic")
+                            SystemIconResolver.candidates("desktop.file." + modelData.kind), "text-x-generic")
                     }
                     BundledIcon {
                         anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 8 }
@@ -3753,7 +3940,7 @@ PanelWindow {
                     color: Qt.rgba(0, 0, 0, 0.46)
                     border { width: 1; color: Qt.rgba(1, 1, 1, 0.28) }
                     Behavior on opacity {
-                        NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+                        NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve }
                     }
                 }
                 Item {
@@ -3767,7 +3954,7 @@ PanelWindow {
                         && desktopFileGrid.folderDropCandidatePath === modelData.path
                     opacity: visible ? 1 : 0
                     Behavior on opacity {
-                        NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+                        NumberAnimation { duration: AppearanceTokens.motion.instant.duration; easing.type: AppearanceTokens.motion.enterCurve }
                     }
                     Rectangle {
                         anchors.fill: parent
@@ -3792,7 +3979,7 @@ PanelWindow {
                     color: Qt.rgba(0, 0, 0, 0.56)
                     border { width: 1; color: Qt.rgba(1, 1, 1, 0.62) }
                     Behavior on opacity {
-                        NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
+                        NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve }
                     }
                 }
                 Item {
@@ -3804,11 +3991,11 @@ PanelWindow {
                     transform: Translate {
                         y: filePointer.containsMouse ? -2 : 0
                         Behavior on y {
-                            NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+                            NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve }
                         }
                     }
                     Behavior on scale {
-                        NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+                        NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve }
                     }
                     Item {
                         id: imageThumbnailFrame
@@ -3816,7 +4003,7 @@ PanelWindow {
                         visible: modelData.kind === "image"
                         opacity: imageThumbnail.status === Image.Ready ? 1 : 0
                         Behavior on opacity {
-                            NumberAnimation { duration: 170; easing.type: Easing.OutCubic }
+                            NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve }
                         }
                         Image {
                             id: imageThumbnail
@@ -3848,136 +4035,25 @@ PanelWindow {
                             maskSource: imageThumbnailMask
                         }
                     }
-                    IconImage {
+                    AppIcon {
                         id: launcherIcon
                         anchors.fill: parent
                         source: modelData.kind === "launcher"
                             ? AppPresentationService.iconSource(modelData.icon) : ""
-                        // Provider icons already scale with the display; raw
-                        // bundled artwork must request physical pixel sizes.
-                        readonly property int rasterSize: Math.max(1, Math.ceil(
-                            actualSize * (String(source).startsWith("image://")
-                                ? 1 : Math.max(1, Screen.devicePixelRatio))))
-                        backer.sourceSize: Qt.size(rasterSize, rasterSize)
                         // Theme icon: synchronous, see AppIcon.qml.
                         asynchronous: false
-                        visible: source !== "" && status === Image.Ready
+                        visible: source !== "" && imageStatus === Image.Ready
                     }
-                    // Folder icon: a unified Canvas-drawn folder shape used
-                    // for both default and customised folders. When a custom
-                    // color is set the folder is tinted with it; when an emoji
-                    // is set it is drawn centered inside the folder body so
-                    // both the folder and the symbol are visible.
-                    Item {
+                    // Folder artwork and custom emblem share one scalable composition.
+                    DesktopFolderIcon {
                         readonly property var folderCustom: modelData.kind === "folder"
                             ? desktopFileGrid.folderCustomFor(modelData.path) : null
                         anchors.centerIn: parent
                         width: desktopFileGrid.iconSize
                         height: desktopFileGrid.iconSize
                         visible: modelData.kind === "folder"
-
-                        Canvas {
-                            id: folderCanvas
-                            anchors.fill: parent
-                            readonly property color baseColor: {
-                                const c = parent.folderCustom
-                                if (c && c.color)
-                                    return c.color
-                                return "#70b6ff"
-                            }
-                            onBaseColorChanged: requestPaint()
-                            onWidthChanged: requestPaint()
-                            onHeightChanged: requestPaint()
-                            Component.onCompleted: requestPaint()
-
-                            function shade(hex, factor) {
-                                // Darken/lighten an rgba/hex color by factor
-                                // (0..1 = darker, >1 = lighter).
-                                const ctx = getContext("2d")
-                                const c = Qt.color(hex)
-                                const r = Math.max(0, Math.min(255, Math.round(c.r * 255 * factor)))
-                                const g = Math.max(0, Math.min(255, Math.round(c.g * 255 * factor)))
-                                const b = Math.max(0, Math.min(255, Math.round(c.b * 255 * factor)))
-                                return "rgba(" + r + "," + g + "," + b + "," + c.a + ")"
-                            }
-
-                            onPaint: {
-                                const ctx = getContext("2d")
-                                ctx.reset()
-                                const w = width
-                                const h = height
-                                const margin = w * 0.10
-                                const tabH = h * 0.14
-                                const bodyX = margin
-                                const bodyY = margin + tabH
-                                const bodyW = w - margin * 2
-                                const bodyH = h - margin - bodyY
-                                const r = Math.min(bodyW, bodyH) * 0.18
-
-                                // Back tab (folder flap) - darker shade for depth
-                                ctx.fillStyle = folderCanvas.shade(folderCanvas.baseColor, 0.72)
-                                ctx.globalAlpha = 0.92
-                                ctx.beginPath()
-                                ctx.moveTo(bodyX, bodyY)
-                                ctx.lineTo(bodyX + bodyW * 0.42, bodyY)
-                                ctx.lineTo(bodyX + bodyW * 0.42 + tabH * 0.7, bodyY - tabH)
-                                ctx.lineTo(bodyX + bodyW * 0.72, bodyY - tabH)
-                                ctx.arcTo(bodyX + bodyW * 0.72 + r, bodyY - tabH,
-                                          bodyX + bodyW * 0.72 + r, bodyY - tabH + r, r)
-                                ctx.lineTo(bodyX + bodyW * 0.72 + r, bodyY)
-                                ctx.closePath()
-                                ctx.fill()
-
-                                // Front body - base color fill
-                                ctx.fillStyle = folderCanvas.shade(folderCanvas.baseColor, 1.0)
-                                ctx.globalAlpha = 0.90
-                                roundRect(ctx, bodyX, bodyY, bodyW, bodyH, r)
-                                ctx.fill()
-
-                                // Top highlight strip on the front body
-                                ctx.fillStyle = "rgba(255,255,255,0.18)"
-                                ctx.globalAlpha = 1.0
-                                ctx.beginPath()
-                                ctx.moveTo(bodyX + r, bodyY)
-                                ctx.lineTo(bodyX + bodyW - r, bodyY)
-                                ctx.lineTo(bodyX + bodyW - r, bodyY + bodyH * 0.12)
-                                ctx.lineTo(bodyX + r, bodyY + bodyH * 0.12)
-                                ctx.closePath()
-                                ctx.fill()
-
-                                // Subtle inner border for definition
-                                ctx.strokeStyle = "rgba(0,0,0,0.16)"
-                                ctx.lineWidth = 1
-                                roundRect(ctx, bodyX, bodyY, bodyW, bodyH, r)
-                                ctx.stroke()
-                            }
-
-                            function roundRect(ctx, x, y, w, h, r) {
-                                ctx.beginPath()
-                                ctx.moveTo(x + r, y)
-                                ctx.lineTo(x + w - r, y)
-                                ctx.arcTo(x + w, y, x + w, y + r, r)
-                                ctx.lineTo(x + w, y + h - r)
-                                ctx.arcTo(x + w, y + h, x + w - r, y + h, r)
-                                ctx.lineTo(x + r, y + h)
-                                ctx.arcTo(x, y + h, x, y + h - r, r)
-                                ctx.lineTo(x, y + r)
-                                ctx.arcTo(x, y, x + r, y, r)
-                                ctx.closePath()
-                            }
-                        }
-
-                        // Emoji centered inside the folder body.
-                        Text {
-                            anchors {
-                                horizontalCenter: parent.horizontalCenter
-                                top: parent.top
-                                topMargin: parent.height * 0.36
-                            }
-                            visible: parent.folderCustom && parent.folderCustom.emoji
-                            text: parent.folderCustom ? parent.folderCustom.emoji : ""
-                            font { family: "Noto Color Emoji"; pixelSize: desktopFileGrid.iconSize * 0.36 }
-                        }
+                        color: folderCustom && folderCustom.color ? folderCustom.color : "#70b6ff"
+                        emoji: folderCustom ? folderCustom.emoji || "" : ""
                     }
                     IconImage {
                         id: desktopThemeIcon
@@ -3987,21 +4063,21 @@ PanelWindow {
                         // Theme icon: synchronous, see AppIcon.qml.
                         asynchronous: false
                         source: SystemIconResolver.sourceFromCandidates(
-                            [desktopFileGrid.iconFor(modelData.kind)], "text-x-generic")
+                            SystemIconResolver.candidates("desktop.file." + modelData.kind), "text-x-generic")
                         visible: source !== "" && status === Image.Ready
                             && (modelData.kind !== "image" || imageThumbnail.status !== Image.Ready)
-                            && (modelData.kind !== "launcher" || launcherIcon.status !== Image.Ready)
+                            && (modelData.kind !== "launcher" || launcherIcon.imageStatus !== Image.Ready)
                             && modelData.kind !== "folder"
                     }
                     BundledIcon {
                         anchors.centerIn: parent
                         // A broken or unsupported image still behaves like a
                         // normal desktop file instead of becoming invisible.
-                        // Folders are drawn by the Canvas Item above. 主题没带
+                        // Folders use the composed artwork above. 主题没带
                         // 这个类型图标时才由这里接手。
                         visible: desktopThemeIcon.status !== Image.Ready
                             && (modelData.kind !== "image" || imageThumbnail.status !== Image.Ready)
-                            && (modelData.kind !== "launcher" || launcherIcon.status !== Image.Ready)
+                            && (modelData.kind !== "launcher" || launcherIcon.imageStatus !== Image.Ready)
                             && modelData.kind !== "folder"
                         name: desktopFileGrid.iconFor(modelData.kind)
                         color: Qt.rgba(1, 1, 1, 0.88)
@@ -4023,7 +4099,7 @@ PanelWindow {
                     styleColor: Qt.rgba(0, 0, 0, 0.72)
                     font { pixelSize: desktopFileGrid.fileNameFontSize; weight: desktopFileGrid.fileNameFontWeight }
                     Behavior on opacity {
-                        NumberAnimation { duration: 110; easing.type: Easing.OutCubic }
+                        NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve }
                     }
                 }
                 MouseArea {
@@ -4130,11 +4206,11 @@ PanelWindow {
                     transform: Translate {
                         y: fileDelegate.isRenaming ? 0 : 2
                         Behavior on y {
-                            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+                            NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve }
                         }
                     }
                     Behavior on opacity {
-                        NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+                        NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve }
                     }
                     function commit() {
                         if (desktopFileGrid.renamingPath !== modelData.path)
@@ -4233,6 +4309,13 @@ PanelWindow {
                 desktopFileGrid.setSelectedPaths(selectedIds)
             }
             onContextMenuRequested: function(entry, pos) {
+                // Bare desktop while editing: dismiss the session instead of
+                // opening the menu that re-enters it. A file keeps its own
+                // menu, it acts on that file rather than on the desktop.
+                if (entry === null && root.editMode) {
+                    root.leaveWidgetEditMode()
+                    return
+                }
                 desktopFileGrid.setSelectedPaths(freeSlotDesktop.selectedIds)
                 desktopFileGrid.contextEntry = entry
                 // freeSlotDesktop is offset by (-gridX,-gridY); translate its
@@ -4245,10 +4328,13 @@ PanelWindow {
             }
             onActivityRequested: desktopFileGrid.activateKeyboard()
             onBackgroundPressAndHold: root.enterWidgetEditMode(false)
-            // 空桌面普通单击＝显示桌面开关（挂件编辑模式除外）。这个
-            // MouseArea 盖住绝大部分桌面，是比背景捕获器更主要的入口。
+            // 空桌面普通单击：编辑模式下退出编辑（只收尾，位置/尺寸各自
+            // 手势里已落盘），否则＝显示桌面开关。这个 MouseArea 盖住绝大
+            // 部分桌面，是比背景捕获器更主要的入口。
             onBackgroundPlainClicked: {
-                if (!root.editMode)
+                if (root.editMode)
+                    root.leaveWidgetEditMode()
+                else
                     StageModeService.deskRevealToggleRequested()
             }
             onExternalUrlsDropped: function(urls, action) {
@@ -4277,12 +4363,13 @@ PanelWindow {
             border { width: 1; color: Qt.rgba(1, 1, 1, 0.48) }
             z: 8
             Behavior on opacity {
-                NumberAnimation { duration: 90; easing.type: Easing.OutCubic }
+                NumberAnimation { duration: AppearanceTokens.motion.instant.duration; easing.type: AppearanceTokens.motion.enterCurve }
             }
         }
 
         ContextMenu {
             id: desktopContextMenu
+            reserveIconSpace: true
             capsuleReveal: true
             // The anchor is only a 4px cursor marker; use the Wi-Fi pill size.
             capsuleSourceWidth: 137
@@ -4339,7 +4426,7 @@ PanelWindow {
             radius: 16
             visible: openWithMotion.mapped
             opacity: openWithMotion.progress
-            scale: 0.96 + 0.04 * openWithMotion.progress
+            scale: 0.96 + 0.04 * openWithMotion.geometryProgress
             enabled: openWithMotion.interactive
             color: Qt.rgba(0.12, 0.12, 0.15, 0.98)
             border { width: 1; color: Qt.rgba(1, 1, 1, 0.18) }

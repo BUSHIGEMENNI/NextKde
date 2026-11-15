@@ -24,7 +24,7 @@ ControlCenterCard {
         enabled: submenuCard.visible
         NumberAnimation {
             duration: AppearanceTokens.motion.normalDuration
-            easing.type: Easing.OutCubic
+            easing.type: AppearanceTokens.motion.enterCurve
         }
     }
     Item {
@@ -43,7 +43,7 @@ ControlCenterCard {
         Rectangle {
             id: submenuBackBtn
             scale: submenuBackMouse.pressed ? 0.92 : 1
-            Behavior on scale { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: Easing.OutCubic } }
+            Behavior on scale { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: AppearanceTokens.motion.enterCurve } }
             width: 26
             height: 26
             radius: AppearanceTokens.surface.pick(AppearanceTokens.shape.extraLarge, 13)
@@ -55,14 +55,14 @@ ControlCenterCard {
                     : (AppearanceTokens.surface.pick(AppearanceTokens.colors.surfaceContainerHigh, ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.10) : Qt.rgba(0, 0, 0, 0.05))))
             border.width: 1
             border.color: AppearanceTokens.surface.pick(AppearanceTokens.colors.surfaceContainerHigh, ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.18) : Qt.rgba(0, 0, 0, 0.08))
-            Behavior on color { ColorAnimation { duration: 110 } }
+            Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
-            GlassText {
+            BundledIcon {
                 anchors.centerIn: parent
                 anchors.horizontalCenterOffset: -1
-                text: "‹"
+                name: "controlCenter.back"
                 color: AppearanceTokens.content.glassInk()
-                font { pixelSize: 18; weight: Font.Bold }
+                size: 18
             }
 
             ControlCenterSelection {
@@ -90,7 +90,7 @@ ControlCenterCard {
                 : (submenuCard.page === "brightness" ? I18n.tr("Display Brightness")
                 : (submenuCard.page === "sound" ? I18n.tr("Sound") : "")))
             color: AppearanceTokens.content.glassInk()
-            font { pixelSize: 13; weight: Font.Bold; family: "Noto Sans CJK SC" }
+            font { pixelSize: 13; weight: Font.Bold; family: AppearanceTokens.typography.textFamily }
         }
 
         // Right toggle switch for Wi-Fi and Bluetooth
@@ -113,7 +113,7 @@ ControlCenterCard {
                 ? "#0a84ff"
                 : (AppearanceTokens.surface.pick(AppearanceTokens.colors.surfaceContainerHigh, ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.20) : Qt.rgba(0, 0, 0, 0.14)))
             opacity: inProgress ? 0.6 : 1.0
-            Behavior on color { ColorAnimation { duration: 160 } }
+            Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
             Rectangle {
                 width: 18
@@ -121,7 +121,7 @@ ControlCenterCard {
                 radius: 9
                 anchors.verticalCenter: parent.verticalCenter
                 x: submenuToggleSwitch.isChecked ? parent.width - width - 2 : 2
-                Behavior on x { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                Behavior on x { NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
                 color: "#ffffff"
             }
 

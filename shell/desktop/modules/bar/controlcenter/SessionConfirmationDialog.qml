@@ -47,9 +47,7 @@ KosFloatPanel {
                 anchors.centerIn: parent
                 width: 26
                 height: 26
-                name: BundledIcons.roleName(sessionConfirm.actionLabel === "poweroff"
-                    ? "powerOff"
-                    : (sessionConfirm.actionLabel === "reboot" ? "reboot" : "logout"))
+                name: "session." + sessionConfirm.actionLabel
                 color: sessionConfirm.contentForegroundColor
             }
         }
@@ -65,7 +63,7 @@ KosFloatPanel {
             text: sessionConfirm.actionLabel === "poweroff" ? I18n.tr("Power off now?")
                 : (sessionConfirm.actionLabel === "reboot" ? I18n.tr("Restart now?") : I18n.tr("Log out now?"))
             color: sessionConfirm.contentForegroundColor
-            font { pixelSize: 16; weight: Font.Bold; family: "Noto Sans CJK SC" }
+            font { pixelSize: 16; weight: Font.Bold; family: AppearanceTokens.typography.textFamily }
         }
 
         Text {
@@ -78,7 +76,7 @@ KosFloatPanel {
             horizontalAlignment: Text.AlignHCenter
             text: I18n.tr("Unsaved work may be lost")
             color: sessionConfirm.contentSecondaryColor
-            font { pixelSize: 12; family: "Noto Sans CJK SC" }
+            font { pixelSize: 12; family: AppearanceTokens.typography.textFamily }
         }
 
         Row {
@@ -99,7 +97,7 @@ KosFloatPanel {
                     anchors.centerIn: parent
                     text: I18n.tr("Cancel")
                     color: sessionConfirm.contentForegroundColor
-                    font { pixelSize: 13; weight: Font.Medium; family: "Noto Sans CJK SC" }
+                    font { pixelSize: 13; weight: Font.Medium; family: AppearanceTokens.typography.textFamily }
                 }
 
                 MouseArea {
@@ -122,7 +120,7 @@ KosFloatPanel {
                     text: sessionConfirm.actionLabel === "poweroff" ? I18n.tr("Power Off")
                         : (sessionConfirm.actionLabel === "reboot" ? I18n.tr("Restart") : I18n.tr("Log Out"))
                     color: "#ff3b30"
-                    font { pixelSize: 13; weight: Font.Medium; family: "Noto Sans CJK SC" }
+                    font { pixelSize: 13; weight: Font.Medium; family: AppearanceTokens.typography.textFamily }
                 }
 
                 ControlCenterSelection {

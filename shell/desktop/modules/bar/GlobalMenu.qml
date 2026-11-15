@@ -36,7 +36,7 @@ Item {
 
     FontMetrics {
         id: labelMetrics
-        font.family: "SF Pro Display, Noto Sans CJK SC, sans-serif"
+        font.family: AppearanceTokens.typography.displayChain
         font.pixelSize: 13
         font.weight: Font.DemiBold
     }
@@ -309,7 +309,7 @@ Item {
                         ThemeService.barInk.g, ThemeService.barInk.b, 0.16) : "transparent"
                 z: -1
             }
-            Text { anchors.centerIn: parent; text: "››"; color: ThemeService.barInk; font.pixelSize: 16; renderType: Text.NativeRendering }
+            BundledIcon { anchors.centerIn: parent; name: "bar.menuOverflow"; color: ThemeService.barInk; size: 16;}
             MouseArea {
                 id: morePointer
                 anchors.fill: parent

@@ -23,13 +23,13 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: I18n.tr("Wi‑Fi is off")
                 color: AppearanceTokens.content.glassInk()
-                font { pixelSize: 14; weight: Font.Bold; family: "Noto Sans CJK SC" }
+                font { pixelSize: 14; weight: Font.Bold; family: AppearanceTokens.typography.textFamily }
             }
             GlassText {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: I18n.tr("Turn on the switch above to see nearby networks")
                 color: AppearanceTokens.content.glassInk()
-                font { pixelSize: 12; weight: Font.DemiBold; family: "Noto Sans CJK SC" }
+                font { pixelSize: 12; weight: Font.DemiBold; family: AppearanceTokens.typography.textFamily }
             }
         }
     }
@@ -54,7 +54,7 @@ Item {
                 anchors { left: parent.left; verticalCenter: parent.verticalCenter }
                 text: I18n.tr("Nearby Networks")
                 color: AppearanceTokens.content.glassInk()
-                font { pixelSize: 11; weight: Font.Bold; family: "Noto Sans CJK SC" }
+                font { pixelSize: 11; weight: Font.Bold; family: AppearanceTokens.typography.textFamily }
             }
 
             GlassText {
@@ -62,7 +62,7 @@ Item {
                 visible: wifiSubmenuView.network.wifiScanInProgress
                 text: I18n.tr("Scanning…")
                 color: AppearanceTokens.content.glassInk()
-                font { pixelSize: 10; weight: Font.DemiBold; family: "Noto Sans CJK SC" }
+                font { pixelSize: 10; weight: Font.DemiBold; family: AppearanceTokens.typography.textFamily }
             }
         }
 
@@ -96,14 +96,14 @@ Item {
                     && wifiRowMouse.containsMouse
                     ? (AppearanceTokens.surface.pick(AppearanceTokens.colors.surfaceContainerHigh, ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.06)))
                     : "transparent"
-                Behavior on color { ColorAnimation { duration: 100 } }
+                Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.instant.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
-                GlassText {
+                BundledIcon {
                     visible: !!modelData.active
                     anchors { left: parent.left; leftMargin: 8; verticalCenter: parent.verticalCenter }
-                    text: "✓"
+                    name: "network.connected"
                     color: AppearanceTokens.content.glassInk()
-                    font { pixelSize: 13; weight: Font.Bold }
+                    size: 13
                 }
 
                 WifiSignalIcon {
@@ -140,7 +140,7 @@ Item {
                     font {
                         pixelSize: 12
                         weight: modelData.active ? Font.Bold : Font.DemiBold
-                        family: "Noto Sans CJK SC"
+                        family: AppearanceTokens.typography.textFamily
                     }
                 }
 
@@ -149,37 +149,12 @@ Item {
                     anchors { right: parent.right; rightMargin: 8; verticalCenter: parent.verticalCenter }
                     spacing: 6
 
-                    Canvas {
+                    BundledIcon {
                         visible: modelData.security && modelData.security !== "none"
                         anchors.verticalCenter: parent.verticalCenter
-                        width: 12
-                        height: 14
-                        readonly property color ink: AppearanceTokens.content.glassInk()
-                        onInkChanged: requestPaint()
-                        onPaint: {
-                            const ctx = getContext("2d")
-                            ctx.reset()
-                            ctx.strokeStyle = ink
-                            ctx.fillStyle = ink
-                            ctx.lineWidth = 1.5
-                            ctx.lineCap = "round"
-                            ctx.beginPath()
-                            ctx.arc(width / 2, 5, 3, Math.PI, 0)
-                            ctx.stroke()
-                            ctx.beginPath()
-                            ctx.moveTo(3.5, 5)
-                            ctx.lineTo(width - 3.5, 5)
-                            ctx.quadraticCurveTo(width - 2, 5, width - 2, 6.5)
-                            ctx.lineTo(width - 2, 10.5)
-                            ctx.quadraticCurveTo(width - 2, 12, width - 3.5, 12)
-                            ctx.lineTo(3.5, 12)
-                            ctx.quadraticCurveTo(2, 12, 2, 10.5)
-                            ctx.lineTo(2, 6.5)
-                            ctx.quadraticCurveTo(2, 5, 3.5, 5)
-                            ctx.closePath()
-                            ctx.fill()
-                        }
-                        Component.onCompleted: requestPaint()
+                        width: 12; height: 14
+                        name: "network.secured"
+                        color: AppearanceTokens.content.glassInk()
                     }
 
                     Rectangle {
@@ -194,7 +169,7 @@ Item {
                             anchors.centerIn: parent
                             text: I18n.tr("Disconnect")
                             color: AppearanceTokens.content.glassInk()
-                            font { pixelSize: 10; weight: Font.DemiBold; family: "Noto Sans CJK SC" }
+                            font { pixelSize: 10; weight: Font.DemiBold; family: AppearanceTokens.typography.textFamily }
                         }
                         MouseArea {
                             anchors.fill: parent
@@ -241,7 +216,7 @@ Item {
                 visible: submenuWifiList.count === 0 && !wifiSubmenuView.network.wifiScanInProgress
                 text: I18n.tr("No Wi‑Fi networks detected")
                 color: AppearanceTokens.content.glassInk()
-                font { pixelSize: 12; weight: Font.DemiBold; family: "Noto Sans CJK SC" }
+                font { pixelSize: 12; weight: Font.DemiBold; family: AppearanceTokens.typography.textFamily }
             }
 
             KosKineticScroll { flickable: submenuWifiList }
@@ -263,14 +238,14 @@ Item {
             anchors { left: parent.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
             text: I18n.tr("Network settings…")
             color: AppearanceTokens.content.glassInk()
-            font { pixelSize: 12; weight: Font.Bold; family: "Noto Sans CJK SC" }
+            font { pixelSize: 12; weight: Font.Bold; family: AppearanceTokens.typography.textFamily }
         }
 
-        GlassText {
+        BundledIcon {
             anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
-            text: "›"
+            name: "network.settings"
             color: AppearanceTokens.content.glassInk()
-            font { pixelSize: 13; weight: Font.Bold }
+            size: 13
         }
 
         ControlCenterSelection {

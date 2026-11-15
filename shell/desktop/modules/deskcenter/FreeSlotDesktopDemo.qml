@@ -279,25 +279,12 @@ Item {
     }
 
     function iconFor(kind) {
-        if (kind === "folder") return "folder"
-        if (kind === "image") return "image-x-generic"
-        if (kind === "pdf") return "application-pdf"
-        if (kind === "code") return "text-x-script"
-        if (kind === "text") return "text-x-generic"
-        if (kind === "launcher") return "application-x-executable"
-        return "text-x-generic"
+        const type = ["folder", "image", "pdf", "code", "text", "launcher"].indexOf(kind) >= 0 ? kind : "text"
+        return "desktop.file." + type
     }
 
     // 文件类型图标走系统图标主题（freedesktop MIME 名）—— 这几个名字任何图标
     // 主题都带着，所以桌面文件与系统文件管理器看起来一致。
-    function themeIconName(kind) {
-        if (kind === "folder") return "folder"
-        if (kind === "pdf") return "application-pdf"
-        if (kind === "code") return "text-x-script"
-        if (kind === "text") return "text-x-generic"
-        return "application-octet-stream"
-    }
-
     function themeIconSource(entry) {
         if (!entry || entry.kind === "image")
             return ""
@@ -312,7 +299,7 @@ Item {
             return AppPresentationService.iconSource(override.icon || entry.icon)
         }
         return SystemIconResolver.sourceFromCandidates(
-            [themeIconName(entry.kind)], "text-x-generic")
+            SystemIconResolver.candidates("desktop.file." + entry.kind), "text-x-generic")
     }
 
     function folderAtSlot(slot) {
@@ -958,6 +945,8 @@ Item {
         delegate: Item {
             id: delegateRoot
             required property var entry
+            required property int index
+            readonly property real arrival: StartupReveal.iconProgress(index, desktopEntryModel.count)
             readonly property string itemId: entry?.path || ""
             readonly property bool isFolder: entry && entry.kind === "folder"
             readonly property var folderCustom: root.folderCustomFor(itemId)
@@ -981,6 +970,7 @@ Item {
             Behavior on x {
                 enabled: root.initialized && !root.isActiveDragItem(delegateRoot.itemId)
                     && root.lastDropId !== delegateRoot.itemId
+                // motion-exception: Drag reflow retains its existing displacement response.
                 NumberAnimation { duration: 150; easing.type: Easing.OutCubic }
             }
             Behavior on y {
@@ -994,7 +984,7 @@ Item {
                 width: root.cellWidth
                 height: root.cellHeight
                 opacity: root.outboundDragStarted
-                        && root.isActiveDragItem(delegateRoot.itemId) ? 0 : 1
+                        && root.isActiveDragItem(delegateRoot.itemId) ? 0 : delegateRoot.arrival
                 z: dragHandler.active ? 100
                     : (root.isActiveDragItem(delegateRoot.itemId) ? 90 : 0)
                 Drag.dragType: Drag.Automatic
@@ -1009,9 +999,9 @@ Item {
                     x: root.isActiveDragItem(delegateRoot.itemId)
                             && delegateRoot.itemId !== root.activeDragSourceId
                         ? root.groupDragOffset.x : 0
-                    y: root.isActiveDragItem(delegateRoot.itemId)
+                    y: (root.isActiveDragItem(delegateRoot.itemId)
                             && delegateRoot.itemId !== root.activeDragSourceId
-                        ? root.groupDragOffset.y : 0
+                        ? root.groupDragOffset.y : 0) - (1 - delegateRoot.arrival) * 14
                 }
                 anchors {
                     horizontalCenter: parent.horizontalCenter
@@ -1041,10 +1031,10 @@ Item {
                     opacity: root.isSelected(delegateRoot.itemId)
                         || (hoverHandler.hovered && !dragHandler.active) ? 1 : 0
                     Behavior on color {
-                        ColorAnimation { duration: 120 }
+                        ColorAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve }
                     }
                     Behavior on opacity {
-                        NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+                        NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve }
                     }
                 }
 
@@ -1065,106 +1055,19 @@ Item {
                     transform: Translate {
                         y: hoverHandler.hovered && !dragHandler.active ? -2 : 0
                         Behavior on y {
-                            NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+                            NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve }
                         }
                     }
                     Behavior on scale {
-                        NumberAnimation { duration: 120; easing.type: Easing.OutCubic }
+                        NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve }
                     }
-                    Behavior on color { ColorAnimation { duration: 90 } }
-                    Canvas {
-                        id: customFolderCanvas
+                    Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.instant.duration; easing.type: AppearanceTokens.motion.enterCurve } }
+                    DesktopFolderIcon {
                         anchors.fill: parent
                         visible: delegateRoot.usesCustomFolderVisual
-                        readonly property color baseColor: delegateRoot.folderCustom
-                                && delegateRoot.folderCustom.color
+                        color: delegateRoot.folderCustom && delegateRoot.folderCustom.color
                             ? delegateRoot.folderCustom.color : "#70b6ff"
-                        onBaseColorChanged: requestPaint()
-                        onVisibleChanged: if (visible) requestPaint()
-                        onWidthChanged: requestPaint()
-                        onHeightChanged: requestPaint()
-                        Component.onCompleted: requestPaint()
-
-                        function shade(colorValue, factor) {
-                            const c = Qt.color(colorValue)
-                            const r = Math.max(0,
-                                Math.min(255, Math.round(c.r * 255 * factor)))
-                            const g = Math.max(0,
-                                Math.min(255, Math.round(c.g * 255 * factor)))
-                            const b = Math.max(0,
-                                Math.min(255, Math.round(c.b * 255 * factor)))
-                            return "rgba(" + r + "," + g + "," + b + "," + c.a + ")"
-                        }
-
-                        function roundRect(ctx, x, y, w, h, radius) {
-                            ctx.beginPath()
-                            ctx.moveTo(x + radius, y)
-                            ctx.lineTo(x + w - radius, y)
-                            ctx.arcTo(x + w, y, x + w, y + radius, radius)
-                            ctx.lineTo(x + w, y + h - radius)
-                            ctx.arcTo(x + w, y + h, x + w - radius,
-                                y + h, radius)
-                            ctx.lineTo(x + radius, y + h)
-                            ctx.arcTo(x, y + h, x, y + h - radius, radius)
-                            ctx.lineTo(x, y + radius)
-                            ctx.arcTo(x, y, x + radius, y, radius)
-                            ctx.closePath()
-                        }
-
-                        onPaint: {
-                            const ctx = getContext("2d")
-                            ctx.reset()
-                            const w = width
-                            const h = height
-                            const margin = w * 0.10
-                            const tabHeight = h * 0.14
-                            const bodyX = margin
-                            const bodyY = margin + tabHeight
-                            const bodyWidth = w - margin * 2
-                            const bodyHeight = h - margin - bodyY
-                            const corner = Math.min(bodyWidth, bodyHeight) * 0.18
-
-                            ctx.fillStyle = shade(baseColor, 0.72)
-                            ctx.globalAlpha = 0.92
-                            ctx.beginPath()
-                            ctx.moveTo(bodyX, bodyY)
-                            ctx.lineTo(bodyX + bodyWidth * 0.42, bodyY)
-                            ctx.lineTo(bodyX + bodyWidth * 0.42
-                                + tabHeight * 0.7, bodyY - tabHeight)
-                            ctx.lineTo(bodyX + bodyWidth * 0.72,
-                                bodyY - tabHeight)
-                            ctx.arcTo(bodyX + bodyWidth * 0.72 + corner,
-                                bodyY - tabHeight,
-                                bodyX + bodyWidth * 0.72 + corner,
-                                bodyY - tabHeight + corner, corner)
-                            ctx.lineTo(bodyX + bodyWidth * 0.72 + corner, bodyY)
-                            ctx.closePath()
-                            ctx.fill()
-
-                            ctx.fillStyle = shade(baseColor, 1.0)
-                            ctx.globalAlpha = 0.90
-                            roundRect(ctx, bodyX, bodyY, bodyWidth,
-                                bodyHeight, corner)
-                            ctx.fill()
-
-                            ctx.fillStyle = "rgba(255,255,255,0.18)"
-                            ctx.globalAlpha = 1.0
-                            ctx.beginPath()
-                            ctx.moveTo(bodyX + corner, bodyY)
-                            ctx.lineTo(bodyX + bodyWidth - corner, bodyY)
-                            ctx.lineTo(bodyX + bodyWidth - corner,
-                                bodyY + bodyHeight * 0.12)
-                            ctx.lineTo(bodyX + corner,
-                                bodyY + bodyHeight * 0.12)
-                            ctx.closePath()
-                            ctx.fill()
-
-                            ctx.strokeStyle = "rgba(0,0,0,0.16)"
-                            ctx.lineWidth = 1
-                            roundRect(ctx, bodyX, bodyY, bodyWidth,
-                                bodyHeight, corner)
-                            ctx.stroke()
-                        }
+                        emoji: delegateRoot.folderCustom ? delegateRoot.folderCustom.emoji || "" : ""
                     }
                     Item {
                         id: fileThumbnailFrame
@@ -1225,20 +1128,6 @@ Item {
                         size: root.iconVisualSize * 0.68
                         outlined: true
                     }
-                    Text {
-                        anchors {
-                            horizontalCenter: parent.horizontalCenter
-                            top: parent.top
-                            topMargin: parent.height * 0.36
-                        }
-                        visible: delegateRoot.usesCustomFolderVisual
-                            && !!delegateRoot.folderCustom.emoji
-                        text: visible ? delegateRoot.folderCustom.emoji : ""
-                        font {
-                            family: "Noto Color Emoji"
-                            pixelSize: root.iconVisualSize * 0.36
-                        }
-                    }
                 }
                 Item {
                     id: fileNameLabel
@@ -1263,7 +1152,7 @@ Item {
                             - width - 2)
                         text: delegateRoot.fileTitleIcon
                         font {
-                            family: "Noto Color Emoji"
+                            family: AppearanceTokens.typography.emojiFamily
                             pixelSize: Math.max(9, Math.round(
                                 fileTitleText.font.pixelSize * 0.75))
                         }

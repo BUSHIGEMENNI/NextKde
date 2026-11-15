@@ -6,6 +6,16 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 
+# Optional for builders without Fcitx. kosctl installs these dependencies for
+# normal desktop builds; the runtime switch reports a missing adapter clearly.
+find_package(Fcitx5Core 5.0.24 QUIET)
+find_package(Fcitx5ModuleDBus QUIET)
+if(Fcitx5Core_FOUND AND Fcitx5ModuleDBus_FOUND)
+    add_subdirectory(fcitx-panel)
+else()
+    message(STATUS "Fcitx5 panel adapter unavailable (Fcitx5Core/ModuleDBus headers missing)")
+endif()
+
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Concurrent DBus Gui Network)
 find_package(KF6CoreAddons REQUIRED)
 find_package(KF6Config REQUIRED)
@@ -57,6 +67,9 @@ set(kos_platform_sources
     src/daemon/PlatformServerWallpaper.cpp
     src/daemon/PlatformServerWatches.cpp
     src/daemon/PlatformServerWindows.cpp
+    src/daemon/KimpanelBridge.cpp
+    src/daemon/KimpanelBridge.h
+    src/daemon/PlatformServerInputMethod.cpp
     src/daemon/PlatformClipboardStorage.h
     src/daemon/PlatformDbus.h
     src/daemon/PlatformNetworkBackend.h
@@ -224,6 +237,14 @@ if(BUILD_TESTING)
             TIMEOUT 30)
     endif()
     if(KOS_PYTHON_EXECUTABLE AND DBUS_RUN_SESSION_EXECUTABLE)
+        qt_add_executable(kos-kimpanel-probe tests/kimpanel_probe.cpp
+            src/daemon/KimpanelBridge.cpp src/daemon/KimpanelBridge.h src/daemon/PlatformDbus.cpp)
+        target_include_directories(kos-kimpanel-probe PRIVATE src/daemon)
+        target_link_libraries(kos-kimpanel-probe PRIVATE Qt6::Core Qt6::DBus KF6::ConfigCore)
+        add_test(NAME kos-platform.kimpanel
+            COMMAND ${KOS_PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_kimpanel.py
+                $<TARGET_FILE:kos-kimpanel-probe>)
+        set_tests_properties(kos-platform.kimpanel PROPERTIES LABELS platform TIMEOUT 60)
         add_test(NAME kos-platform.brightness
             COMMAND ${KOS_PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_brightness.py $<TARGET_FILE:kos-platform>)
         set_tests_properties(kos-platform.brightness PROPERTIES LABELS platform TIMEOUT 40)

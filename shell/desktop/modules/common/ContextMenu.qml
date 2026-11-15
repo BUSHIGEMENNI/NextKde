@@ -18,6 +18,8 @@ PopupWindow {
     // Global AppMenu uses the same macOS motion as Control Center and anchors
     // the popup to the clicked item's horizontal centre.
     property bool macosPopupMotion: true
+    // Opt in to a fixed leading column for menus with sparse action icons.
+    property bool reserveIconSpace: false
     // Opt-in source-capsule morph, matching Control Center's Wi-Fi list.
     property bool capsuleReveal: false
     property real capsuleSourceWidth: 0
@@ -71,8 +73,8 @@ PopupWindow {
     PageMotion {
         id: pageMotion
         page: root.page
-        exitDuration: 60
-        enterDuration: 90
+        exitDuration: 20
+        enterDuration: 30
         enabled: root.visible && (!root.macosPopupMotion || popupMotion.requestedOpen)
     }
 
@@ -263,8 +265,10 @@ PopupWindow {
 
     PopupMotion {
         id: popupMotion
-        openDuration: 120
-        closeDuration: 80
+        // Frequent menu actions need a quick response without losing velocity.
+        springResponse: 0.08
+        openDuration: 45
+        closeDuration: 35
         openEasing: Easing.OutCubic
         closeEasing: Easing.OutCubic
         onClosed: {
@@ -289,9 +293,10 @@ PopupWindow {
     Item {
         id: revealFrame
         readonly property bool morphing: root.capsuleReveal && root.macosPopupMotion
-        // One shared, monotonic timeline for outline and fade. Reversing it
-        // mid-animation keeps the current geometry without extra state.
-        readonly property real progress: morphing ? popupMotion.progress : 1
+        // Keep the outline inside its fixed capture allocation. The spring
+        // retains velocity on reversal; the fade has its own bounded progress.
+        readonly property real progress: morphing
+            ? Math.max(0, Math.min(1, popupMotion.geometryProgress)) : 1
         readonly property real sourceWidth: Math.min(root.width,
             Math.max(48, root.capsuleSourceWidth > 0 ? root.capsuleSourceWidth
                 : (root.anchorItem ? root.anchorItem.width : 96)))
@@ -339,18 +344,17 @@ PopupWindow {
         scrimLevel: root.scrimLevel
         blurOverrideEnabled: root.blurOverrideEnabled
         blurStrength: root.blurStrength
-        materialOpacity: revealFrame.morphing ? revealFrame.progress * pageMotion.progress : 1
-        scale: (!root.capsuleReveal && root.macosPopupMotion && popupMotion.progress < 0.999)
+        materialOpacity: revealFrame.morphing ? popupMotion.progress * pageMotion.progress : 1
+        scale: (!root.capsuleReveal && root.macosPopupMotion)
             ? AppearanceTokens.motion.popupStartScale
-                + (1 - AppearanceTokens.motion.popupStartScale) * popupMotion.progress
+                + (1 - AppearanceTokens.motion.popupStartScale) * popupMotion.geometryProgress
             : 1
         transformOrigin: Item.Top
-        opacity: (revealFrame.morphing ? revealFrame.progress
-            : (root.macosPopupMotion ? popupMotion.progress : 1)) * pageMotion.progress
+        opacity: (root.macosPopupMotion ? popupMotion.progress : 1) * pageMotion.progress
         enabled: (!root.macosPopupMotion || popupMotion.interactive) && pageMotion.interactive
         transform: Translate {
-            y: (!root.capsuleReveal && root.macosPopupMotion && popupMotion.progress < 0.999)
-                ? Math.round((1 - popupMotion.progress) * AppearanceTokens.motion.popupAnchorOffset)
+            y: (!root.capsuleReveal && root.macosPopupMotion)
+                ? (1 - popupMotion.geometryProgress) * AppearanceTokens.motion.popupAnchorOffset
                 : 0
         }
 
@@ -399,7 +403,8 @@ PopupWindow {
                     MenuItemRow {
                         width: parent.width
                         visible: root.displayedPage.parents.length > 0
-                        icon: "back"
+                        icon: "menu.back"
+                        reserveIconSpace: root.reserveIconSpace
                         label: I18n.tr("Back")
                         foregroundColor: root.effectiveForegroundColor
                         onClicked: root.back()
@@ -419,6 +424,7 @@ PopupWindow {
                             width: parent.width
                             foregroundColor: root.effectiveForegroundColor
                             icon: modelData.icon || ""
+                            reserveIconSpace: root.reserveIconSpace
                             iconSource: entry ? (entry.icon || "") : (modelData.iconSource || "")
                             label: entry ? (entry.text || "") : (modelData.label || "")
                             separator: entry ? entry.isSeparator : !!modelData.separator

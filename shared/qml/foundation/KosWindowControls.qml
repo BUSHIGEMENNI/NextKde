@@ -1,17 +1,18 @@
 import QtQuick
+import "../../Icons" as Symbols
 import QtQuick.Controls
 import QtQuick.Window
 
 Row {
     id: root
     required property var targetWindow
-    property int circleSize: 18
+    property int circleSize: 14
     property int buttonWidth: 22
     property int buttonHeight: 32
     property bool maximizeMode: false
     property bool compositorIntegration: true
     // One entry per actual action; order is layout order, not action identity.
-    property var actions: ["maximize", "minimize", "close"]
+    property var actions: ["minimize", "maximize", "close"]
     property int layoutRevision: 0
     onPositioningComplete: layoutRevision++
     readonly property var buttonLayout: {
@@ -33,7 +34,7 @@ Row {
     readonly property bool hoverGlyphs: compositorLoader.item && compositorLoader.item.supported
         ? compositorLoader.item.hoverGlyphs : true
     objectName: "windowControls"
-    spacing: 10
+    spacing: 6
     // Keep delegates in the Row layout while takeover hides only their opacity.
     Loader {
         id: compositorLoader
@@ -87,24 +88,13 @@ Row {
                     border.color: button.activeFocus ? AppTheme.text : Qt.darker(color, 1.28)
                     scale: button.down ? .88 : button.hovered ? 1.04 : 1
                     Behavior on scale { NumberAnimation { duration: AppTheme.motionFast } }
-                    Item {
-                        anchors.centerIn: parent; width: 9; height: 9
+                    Symbols.Icon {
+                        anchors.centerIn: parent
+                        size: 9
+                        name: button.modelData === "maximize" ? "square" : button.modelData === "minimize" ? "minus" : "xmark"
+                        color: "black"
                         opacity: !root.hoverGlyphs || groupHover.hovered || button.activeFocus ? .72 : 0
                         Behavior on opacity { NumberAnimation { duration: AppTheme.motionFast } }
-                        Rectangle {
-                            anchors.centerIn: parent; width: 6; height: 6; radius: .6
-                            color: "transparent"; border.width: 1.2; border.color: "black"
-                            visible: button.modelData === "maximize"
-                        }
-                        Rectangle {
-                            anchors.centerIn: parent; width: 7; height: 1.35; radius: height / 2
-                            color: "black"; rotation: button.modelData === "close" ? 45 : 0
-                            visible: button.modelData !== "maximize"
-                        }
-                        Rectangle {
-                            anchors.centerIn: parent; width: 7; height: 1.35; radius: height / 2
-                            color: "black"; rotation: -45; visible: button.modelData === "close"
-                        }
                     }
                 }
             }

@@ -37,7 +37,7 @@ PanelWindow {
     // 背书动态设层），unpeek/点卡后回 Bottom，平时相交语义原样保留。
     WlrLayershell.layer: root._stageTop ? WlrLayer.Top : WlrLayer.Bottom
     // KWin 桌面层序脚本通过类型与键盘模式识别：本窗 Normal + None，
-    // DeskCenter Desktop + OnDemand，壁纸 Desktop + None。
+    // DeskCenter Dock + OnDemand，壁纸 Desktop + None。
     // 改动此处需同步 kwin/window-bridge.js。
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
     // 全屏透明浮层（2026-09-30 用户定稿"完完全全不用侧边栏，卡片就是
@@ -2441,6 +2441,7 @@ PanelWindow {
                     // 拖拽中的被拖卡必须逐帧跟手（Behavior=橡皮筋延迟）；
                     // 其余卡的 Behavior 保持——让位/回弹平滑
                     enabled: slot.placed && root.dragKey !== slot.appKey
+                    // motion-exception: Stage reflow follows the configured card motion.
                     NumberAnimation { duration: StageConfigService.reflowDuration; easing.type: Easing.OutCubic }
                 }
                 Behavior on x {
@@ -2684,8 +2685,8 @@ PanelWindow {
         id: retractMotion
         target: root
         property: "_retractPx"
-        duration: 260
-        easing.type: Easing.OutCubic
+        duration: AppearanceTokens.motion.page.duration
+        easing.type: AppearanceTokens.motion.enterCurve
     }
     function _animateRetraction() {
         retractMotion.stop()

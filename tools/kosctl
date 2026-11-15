@@ -84,7 +84,7 @@ is_nixos() {
 arch_core_build_packages=(
     git python quickshell cmake ninja gcc qt6-base qt6-declarative qt6-tools qt6-translations qt6-quick3d qt6-svg qt6-imageformats qt6-5compat qt6-wayland go curl
     extra-cmake-modules wayland gtk3 pkgconf flatpak ostree gnupg
-    kwindowsystem kiconthemes kglobalaccel kio patchelf
+    kwindowsystem kiconthemes kglobalaccel kio kcmutils patchelf fcitx5
 )
 # The depth engine and 3D wallpaper plugin follow KOS_BUILD_SPATIAL.
 # AUTO enables them when their build dependencies are available.
@@ -92,7 +92,7 @@ arch_spatial_build_packages=(
     opencv
 )
 arch_kwin_build_packages=(
-    kwin kconfig ki18n kguiaddons kcmutils
+    kwin kconfig ki18n kguiaddons
     kcoreaddons kdecoration gettext libxcb vulkan-headers
 )
 arch_optional_runtime_packages=(
@@ -109,14 +109,16 @@ debian_core_build_packages=(
     git python3 cmake ninja-build g++ golang-go curl patchelf pkg-config libflatpak-dev libostree-dev flatpak gpgv
     quickshell
     extra-cmake-modules libwayland-dev wayland-protocols libxkbcommon-dev libgtk-3-dev
-    qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-l10n-tools qt6-translations-l10n qt6-quick3d-dev qt6-svg-dev qt6-wayland-dev
+    qt6-base-dev qt6-base-private-dev libfontconfig-dev
+    qt6-declarative-dev qt6-tools-dev qt6-l10n-tools qt6-translations-l10n qt6-quick3d-dev qt6-svg-dev qt6-wayland-dev
     qt6-image-formats-plugins qt6-5compat-dev libqt6svg6
     qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts
     qml6-module-qtquick-dialogs qml6-module-qtquick-window qml6-module-qtquick-effects
     qml6-module-qtqml-models qml6-module-qtqml-workerscript
     qml6-module-qt5compat-graphicaleffects
     libkf6windowsystem-dev libkf6iconthemes-dev libkf6globalaccel-dev
-    libkf6kio-dev libkf6calendarcore-dev
+    libkf6kio-dev libkf6kcmutils-dev libkf6calendarcore-dev
+    libfcitx5core-dev fcitx5-modules-dev
 )
 debian_spatial_build_packages=(
     libopencv-dev
@@ -124,7 +126,7 @@ debian_spatial_build_packages=(
 debian_kwin_build_packages=(
     kwin-dev libdrm-dev libgbm-dev libepoxy-dev
     libxkbcommon-x11-dev
-    libkf6config-dev libkf6i18n-dev libkf6guiaddons-dev libkf6kcmutils-dev
+    libkf6config-dev libkf6i18n-dev libkf6guiaddons-dev
     libkf6coreaddons-dev libkdecorations3-dev libplasma-dev
     gettext libvulkan-dev zlib1g-dev
     libxcb1-dev libxcb-composite0-dev libxcb-randr0-dev libxcb-res0-dev
@@ -156,17 +158,19 @@ fedora_core_build_packages=(
     quickshell
     extra-cmake-modules wayland-devel wayland-protocols-devel libxkbcommon-devel gtk3-devel flatpak-devel ostree-devel flatpak gnupg2
     qt6-qtbase-devel qt6-qtbase-private-devel qt6-qtdeclarative-devel qt6-qttools-devel
+    fontconfig-devel
     qt6-qttranslations qt6-qtquick3d-devel qt6-qtsvg-devel qt6-qtwayland-devel
     qt6-qtimageformats qt6-qt5compat-devel
     kf6-kwindowsystem-devel kf6-kiconthemes-devel kf6-kglobalaccel-devel
-    kf6-kio-devel kf6-kcalendarcore-devel
+    kf6-kio-devel kf6-kcmutils-devel kf6-kcalendarcore-devel
+    fcitx5-devel
 )
 fedora_spatial_build_packages=(
     opencv-devel
 )
 fedora_kwin_build_packages=(
     kwin-devel libdrm-devel mesa-libgbm-devel libepoxy-devel
-    kf6-kconfig-devel kf6-ki18n-devel kf6-kguiaddons-devel kf6-kcmutils-devel
+    kf6-kconfig-devel kf6-ki18n-devel kf6-kguiaddons-devel
     kf6-kcoreaddons-devel kdecoration-devel libplasma-devel
     gettext vulkan-headers vulkan-loader-devel zlib-devel libxcb-devel
 )
@@ -897,10 +901,10 @@ deploy_artifacts() {
     local required
     local -a required_files
     if [[ "$nix_artifact" == true ]]; then
-        required_files=(libexec/kos-platform libexec/kos-data-service bin/kos-settings bin/kos-apps bin/kos-flatpak-worker lib/gtk-3.0/modules/libkos-gtk-window-controls.so)
+        required_files=(libexec/kos-platform libexec/kos-data-service bin/kos-settings bin/kos-apps bin/kos-flatpak-worker bin/kos-app-update-agent lib/gtk-3.0/modules/libkos-gtk-window-controls.so lib/fcitx5/libnextkde-inputpanel.so)
         spatial_requested && required_files+=(libexec/kos-ai-worker)
     else
-        required_files=(platform/kos-platform bin/kos-data-service apps/settings/kos-settings apps/settings/kos-apps apps/settings/kos-flatpak-worker apps/settings/gtk-module/libkos-gtk-window-controls.so)
+        required_files=(platform/kos-platform bin/kos-data-service apps/settings/kos-settings apps/settings/kos-apps apps/settings/kos-flatpak-worker apps/settings/kos-app-update-agent apps/settings/gtk-module/libkos-gtk-window-controls.so platform/fcitx-panel/libnextkde-inputpanel.so)
         spatial_built && required_files+=(platform/kos-ai-worker)
     fi
     for required in "${required_files[@]}"; do
@@ -937,9 +941,15 @@ deploy_artifacts() {
         install -m 0755 "$artifact_root/apps/settings/gtk-module/libkos-gtk-window-controls.so" "$prefix/lib/gtk-3.0/modules/.libkos-gtk-window-controls.so.new"
         mv -f "$prefix/lib/gtk-3.0/modules/.libkos-gtk-window-controls.so.new" "$prefix/lib/gtk-3.0/modules/libkos-gtk-window-controls.so"
     fi
+    local panel_library="$artifact_root/platform/fcitx-panel/libnextkde-inputpanel.so"
+    [[ "$nix_artifact" == true ]] && panel_library="$artifact_root/lib/fcitx5/libnextkde-inputpanel.so"
+    python3 "$project_dir/tools/deploy/deploy-fcitx-panel.py" \
+        --library "$panel_library" --prefix "$prefix" \
+        --template "$project_dir/platform/fcitx-panel/nextkde-inputpanel.conf" \
+        --addon-dir "${FCITX_DATA_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/fcitx5}/addon"
     # --- Binaries ---
     rm -f "$prefix/libexec/kos-platform" "$prefix/libexec/kos-ai-worker" \
-        "$prefix/libexec/kos-data-service" "$prefix/bin/kos-settings" "$prefix/bin/kos-apps" "$prefix/bin/kos-flatpak-worker"
+        "$prefix/libexec/kos-data-service" "$prefix/bin/kos-settings" "$prefix/bin/kos-apps" "$prefix/bin/kos-flatpak-worker" "$prefix/bin/kos-app-update-agent"
     if [[ "$nix_artifact" == true ]]; then
         ln -s "$artifact_root/libexec/kos-platform"    "$prefix/libexec/kos-platform"
         spatial_requested && ln -s "$artifact_root/libexec/kos-ai-worker" \
@@ -948,6 +958,7 @@ deploy_artifacts() {
         ln -s "$artifact_root/bin/kos-settings"          "$prefix/bin/kos-settings"
         ln -s "$artifact_root/bin/kos-apps"              "$prefix/bin/kos-apps"
         ln -s "$artifact_root/bin/kos-flatpak-worker"     "$prefix/bin/kos-flatpak-worker"
+        ln -s "$artifact_root/bin/kos-app-update-agent"   "$prefix/bin/kos-app-update-agent"
     else
         install -m 0755 "$artifact_root/platform/kos-platform"    "$prefix/libexec/kos-platform"
         if spatial_built; then
@@ -975,6 +986,7 @@ deploy_artifacts() {
         install -m 0755 "$artifact_root/apps/settings/kos-settings" "$prefix/bin/kos-settings"
         install -m 0755 "$artifact_root/apps/settings/kos-apps"     "$prefix/bin/kos-apps"
         install -m 0755 "$artifact_root/apps/settings/kos-flatpak-worker" "$prefix/bin/kos-flatpak-worker"
+        install -m 0755 "$artifact_root/apps/settings/kos-app-update-agent" "$prefix/bin/kos-app-update-agent"
         if command -v patchelf >/dev/null 2>&1; then
             patchelf --set-rpath '$ORIGIN/../lib' "$prefix/libexec/kos-platform"
             if spatial_built; then
@@ -1037,6 +1049,12 @@ deploy_artifacts() {
     find "$prefix/share/shared/qml" \
         \( -name CMakeLists.txt -o -name 'test_*.mjs' \) -delete
 
+    # Interface fonts sit beside qml so source and compiled consumers share paths.
+    local shared_icons_src="$(dirname "$shared_qml_src")/Icons"
+    rm -rf "$prefix/share/shared/Icons"
+    cp -rL --no-preserve=mode "$shared_icons_src" "$prefix/share/shared/Icons"
+    rm -f "$prefix/share/shared/Icons/CMakeLists.txt"
+
     # --- Shell QML → ~/.config/quickshell/kos ---
     local shell_config="$config_dir/quickshell/kos"
     python3 "$project_dir/tools/deploy/deploy-shell-qml.py" deploy \
@@ -1090,6 +1108,12 @@ deploy_artifacts() {
     chmod 0644 "$runtime_unit_dir/kos-platform.service" \
         "$runtime_unit_dir/kos-data.service" \
         "$runtime_unit_dir/kos-shell.service"
+
+    # Session updater owns metadata checks independently of the Settings window.
+    mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
+    sed "s|@CMAKE_INSTALL_PREFIX@|$prefix|g" \
+        "$project_dir/packaging/desktop/kos-app-updates.desktop.in" \
+        > "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/kos-app-updates.desktop"
 
     # --- Desktop entries ---
     if [[ "$nix_artifact" == true ]]; then
@@ -2049,19 +2073,22 @@ uninstall() {
         systemctl --user daemon-reload || true
     fi
     rm -f "$prefix/lib/gtk-3.0/modules/libkos-gtk-window-controls.so"
+    rm -f "$prefix/lib/fcitx5/libnextkde-inputpanel.so" \
+        "${FCITX_DATA_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/fcitx5}/addon/nextkde-inputpanel.conf"
     rm -f "$prefix/share/kos/release.json"
     rm -f "$prefix/libexec/kos-platform" "$prefix/libexec/kos-ai-worker" \
-        "$prefix/libexec/kos-data-service" "$prefix/bin/kos-settings" "$prefix/bin/kos-apps" "$prefix/bin/kos-flatpak-worker"
+        "$prefix/libexec/kos-data-service" "$prefix/bin/kos-settings" "$prefix/bin/kos-apps" "$prefix/bin/kos-flatpak-worker" "$prefix/bin/kos-app-update-agent"
     rm -f "$prefix/lib/libonnxruntime.so" "$prefix/lib/libonnxruntime.so.1" \
         "$prefix/lib/libonnxruntime.so.1.30.0" \
         "$prefix/lib/libonnxruntime_providers_shared.so"
     rm -f "$prefix/share/kos/platform/kwin/window-bridge.js" \
         "$prefix/share/kos/settings/main.qml" \
+        "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/kos-app-updates.desktop" \
         "$prefix/share/applications/kos-settings.desktop" \
         "$prefix/share/applications/org.kos.Platform.desktop" \
         "$prefix/share/applications/org.kos.Shell.desktop" \
         "$prefix/share/applications/kos-platform.desktop"
-    rm -rf "$prefix/share/kos/settings" "$prefix/share/shared/qml"
+    rm -rf "$prefix/share/kos/settings" "$prefix/share/shared/qml" "$prefix/share/shared/Icons"
     rm -rf "$config_dir/quickshell/kos"
     echo "Removed KOS binaries, units, and shell configuration; state data was preserved."
     if is_nixos; then
@@ -2170,9 +2197,30 @@ nix_status() {
     done
 }
 
+deploy_shell() {
+    local shell_config="$config_dir/quickshell/kos"
+    local shell_qml_src="$project_dir/shell"
+    local shared_qml_src="$project_dir/shared/qml"
+    uv run python "$project_dir/tools/deploy/deploy-shell-qml.py" deploy \
+        --shell "$shell_qml_src" --shared "$shared_qml_src" \
+        --destination "$shell_config" || return 1
+    if [[ -d "$build_dir/qml/Kos/SurfaceShape" ]]; then
+        mkdir -p "$shell_config/Kos"
+        rm -rf "$shell_config/Kos/SurfaceShape"
+        cp -rL --no-preserve=mode "$build_dir/qml/Kos/SurfaceShape" "$shell_config/Kos/"
+    fi
+    if [[ -d "$prefix/share/kos/settings" ]]; then
+        cp -rL --no-preserve=mode "$project_dir/apps/settings/pages" "$prefix/share/kos/settings/"
+    fi
+    if [[ -d "$prefix/share/shared/qml" ]]; then
+        cp -rL --no-preserve=mode "$shared_qml_src/." "$prefix/share/shared/qml/"
+    fi
+}
+
 case "${1:-}" in
     doctor) doctor ;;
     build) build ;;
+    deploy) deploy_shell ;;
     install)
         case "${2:-}" in
             "") install_all ;;

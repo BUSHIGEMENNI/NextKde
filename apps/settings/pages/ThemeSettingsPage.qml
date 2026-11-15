@@ -15,11 +15,25 @@ ColumnLayout {
     required property var glassStyles
     signal shellStyleObserved(string style)
     signal materialSeedObserved(string seed)
+    signal fontsRequested()
 
     Layout.fillWidth: true
     spacing: 12
 
     property var bridge: null
+    property bool reduceMotion: false
+    property int startupRevealDuration: 1500
+    // Offered durations. AppearanceConfigService accepts anything in
+    // 800..2000 and rounds to whole milliseconds.
+    // 800 is not offered as a fresh choice, but legacy configs clamp to it and
+    // should still show their real value.
+    readonly property var startupRevealOptions: [800, 1000, 1200, 1500, 1800]
+    // A value saved before this list existed may not be an option; fall back to
+    // the default entry instead of an out-of-range index.
+    function revealDurationIndex() {
+        const index = startupRevealOptions.indexOf(startupRevealDuration)
+        return index >= 0 ? index : startupRevealOptions.indexOf(1500)
+    }
     property string shellStyle: "macos"
     // Material's colour source, mirrored from the Shell so the segmented
     // control reflects what is actually applied.
@@ -73,6 +87,8 @@ ColumnLayout {
     function applyState(state) {
         if (!state || !isValidStyle(state.shellStyle))
             return;
+        reduceMotion = state.reduceMotion === true;
+        startupRevealDuration = Number(state.startupRevealDuration ?? 1500);
         shellStyle = state.shellStyle;
         // The window palette follows the same style. ControlForm is NOT
         // assigned here: reading themePage.materialForm before this line would
@@ -185,6 +201,7 @@ ColumnLayout {
         showIconAppearance: false
         onShellStyleObserved: style => themePage.shellStyleObserved(style)
     }
+
 
     Demo.SettingsGroup {
         title: I18n.tr("Interface shape")
@@ -316,6 +333,37 @@ ColumnLayout {
         }
     }
 
+    Demo.SettingsGroup {
+        title: I18n.tr("Desktop arrival")
+        backgroundColor: colors.card
+        Demo.SettingsItem {
+            title: I18n.tr("Reduce motion")
+            description: I18n.tr("Show the desktop immediately after login, without the arrival animation")
+            Controls.SettingsSwitch {
+                objectName: "startupReduceMotion"
+                checked: themePage.reduceMotion
+                enabled: themePage.bridge !== null
+                accentColor: colors.accent
+                trackColor: colors.divider
+                onToggled: checked => themePage.bridge.updateStartupMotion(checked, themePage.startupRevealDuration)
+            }
+        }
+        Demo.SettingsItem {
+            title: I18n.tr("Arrival duration")
+            Controls.SettingsSelect {
+                objectName: "startupRevealDuration"
+                colors: themePage.colors
+                materialForm: themePage.materialForm
+                enabled: themePage.bridge !== null && !themePage.reduceMotion
+                textRole: "label"
+                model: themePage.startupRevealOptions.map(ms => ({label: ms + " ms"}))
+                currentIndex: themePage.revealDurationIndex()
+                onSelectionChanged: index => themePage.bridge.updateStartupMotion(
+                    themePage.reduceMotion, themePage.startupRevealOptions[index])
+            }
+        }
+    }
+
     DisplaySettingsPage {
         id: globalAppearanceSettings
         colors: themePage.colors
@@ -329,6 +377,7 @@ ColumnLayout {
         showSpatialWallpaper: false
         onShellStyleObserved: style => themePage.shellStyleObserved(style)
     }
+
     WidgetAppearanceSection {
         colors: themePage.colors
         materialForm: themePage.materialForm
@@ -338,6 +387,7 @@ ColumnLayout {
     Demo.SettingsGroup {
         backgroundColor: colors.card
         Demo.SettingsItem {
+            objectName: "theme-language-entry"
             title: I18n.tr("Language")
             description: I18n.tr("Switch the interface language; applies live.")
             Controls.SettingsSelect {
@@ -356,6 +406,39 @@ ColumnLayout {
                 onSelectionChanged: function(index) {
                     themePage.setLanguage(model[index].id)
                 }
+            }
+        }
+    }
+    Demo.SettingsGroup {
+        backgroundColor: themePage.colors.card
+        Demo.SettingsItem {
+            id: fontsEntry
+            minimumRowHeight: 36
+            allowStacking: false
+            objectName: "theme-fonts-entry"
+            title: I18n.tr("Fonts")
+            titleColor: themePage.colors.primaryText
+            activeFocusOnTab: true
+            Accessible.role: Accessible.Button
+            Accessible.onPressAction: themePage.fontsRequested()
+            Keys.onReturnPressed: themePage.fontsRequested()
+            Keys.onEnterPressed: themePage.fontsRequested()
+            Keys.onSpacePressed: themePage.fontsRequested()
+            property Item pointer: MouseArea {
+                parent: fontsEntry
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: themePage.fontsRequested()
+            }
+            Demo.VectorIcon {
+                objectName: "theme-fonts-chevron"
+                name: "chevron"
+                rotation: -90
+                size: 14
+                color: themePage.colors.secondaryText
+                Layout.minimumWidth: 16
+                Layout.preferredWidth: 16
+                Layout.preferredHeight: 16
             }
         }
     }

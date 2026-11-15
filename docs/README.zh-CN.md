@@ -8,6 +8,7 @@
 
 | 主题 | 权威入口 |
 | --- | --- |
+| 签名目录、第三方源、更新提示与应用上架 | [应用与服务](app-store/SignedCatalog.zh-CN.md)、[appCatalog / Qt runtime](https://github.com/NextKde/appCatalog/blob/main/README.zh-CN.md) |
 | 依赖、安装、更新、卸载 | [开始使用](GettingStarted.zh-CN.md) |
 | NixOS 声明式安装 | [NixOS](nixos-quickstart.zh-CN.md) |
 | 窗口动画选择、原生神灯及回退 | [窗口动画](WindowAnimations.zh-CN.md) |
@@ -35,6 +36,7 @@
 | 壁纸所有权及主题格式 | [壁纸](WallpaperArchitecture.zh-CN.md)、[主题包](ThemePackFormat.zh-CN.md)、[深度引擎](DepthEngine.md) |
 | 网络、PIM、天气 | [网络](NetworkArchitecture.md)、[PIM](PimArchitecture.md)、[天气](WeatherArchitecture.md) |
 | 独立应用与生命周期 | [应用](../apps/README.zh-CN.md)、[ListenFree](https://github.com/NextKde/ListenFree) |
+| 输入法集成与应用兼容性 | [输入法集成](InputMethodIntegration.zh-CN.md) |
 | 可复用 QML 组件、Gallery 与侧栏 Demo | [nextkdeAppDemo](https://github.com/NextKde/nextkdeAppDemo) |
 
 组件 Gallery 与侧栏 Demo 由 `nextkdeAppDemo` 独立维护，NextKde 不再附带它们的预览入口。
@@ -48,3 +50,5 @@
 `docs/` 不提交会话日记、过程截图、抓取日志及临时 review 报告。临时资料放忽略的 `tmp/`；
 长期发布证据放 CI/Release 制品。保留项目插图、必要资源及第三方来源。
 当前树删除文件不等于清除历史 Git 对象；浅克隆可避免下载旧历史。常规文档清理不改写已发布历史。
+
+[开发者测试模式](app-store/DeveloperTesting.zh-CN.md)：测试源、Release 选择与手动恢复。

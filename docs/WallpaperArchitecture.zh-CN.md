@@ -11,6 +11,8 @@
   不为局部动画强制全局 Qt 渲染循环。
 - `WallpaperPreviewService.qml` 管多输出可取消草稿：Enter 确认，Esc/关闭取消；与已确认状态隔离。
 - `SpatialWallpaperService.qml` 请求素材，`DepthWallpaperLayer.qml` 显示；失败保留普通壁纸。
+  壁纸保留 `desktop` layer-shell scope，独立组件表面使用 `dock`，让原生概览捕获壁纸而非透明组件。
+  两者保持 Bottom 层，见[桌面表面归属](DesktopIcons.zh-CN.md#桌面表面归属)。
 - `WallpaperColorSource.qml` 取原图调色，`PlasmaWallpaperAdapter` 管 Plasma 和强调色元数据。
   Settings 经 `wallpaper-settings` → 平台 `wallpaper.plasma.*`、`wallpaper.preview.desktop`；QML 不直调 Plasma D-Bus/推理。
 
@@ -44,7 +46,10 @@ VM 开发需匹配原生模块和服务，`kosctl dev settings` 打印实际路�
 轮播最多 2000 项，预览暂停，不足两张停播，输出共享随机种子。
 
 主题保留原图供恢复/锁屏，停止轮播和深度，不依赖 AI 模型。`ThemeWallpaperScene` 与前景层共用 host 契约。
-普通模式等待无可见窗口的桌面空闲，预览立即播放，锁屏/离屏/减少动态策略仍生效。
+主题播放与空间视差共用 `WallpaperMotionGate`：当前虚拟桌面连续 5 秒无可见窗口后启用动效。
+最小化/隐藏窗口和其他桌面的窗口不阻挡；打开/恢复可见窗口或切换桌面会重置等待。
+鼠标移动不重置等待，以便启用后的空间视差能够跟随鼠标。预览立即播放；普通模式仍遵守锁屏/离屏/减少动态策略。
+暂停动效时保留空间素材加载，镜头回到中心并隐藏组件前景，素材准备/就绪不依赖空闲等待。
 天气复用共享缓存。负载下不保证独立前后景窗口逐帧同步。
 保留[资源来源](../shared/qml/wallpapers/vendor/README.md)及着色器 Qt 兼容。
 

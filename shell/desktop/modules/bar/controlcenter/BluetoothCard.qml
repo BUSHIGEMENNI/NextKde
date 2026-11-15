@@ -17,7 +17,7 @@ ControlCenterCard {
         pressed: bluetoothPagePointer.pressed || bluetoothTogglePointer.pressed
     }
     cardScale: bluetoothPagePointer.pressed ? 0.97 : bluetoothPagePointer.containsMouse ? 1.015 : 1
-    Behavior on cardScale { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: Easing.OutCubic } }
+    Behavior on cardScale { NumberAnimation { duration: AppearanceTokens.motion.fastDuration; easing.type: AppearanceTokens.motion.enterCurve } }
     cardOpacity: bluetoothCard.service.bluetoothAvailable ? 1 : 0.48
     Rectangle {
         id: bluetoothToggleDisc
@@ -29,42 +29,16 @@ ControlCenterCard {
         opacity: bluetoothCard.service.bluetoothChangeInProgress ? 0.55 : 1.0
         scale: bluetoothTogglePointer.pressed ? 0.92
             : (bluetoothTogglePointer.containsMouse ? 1.04 : 1.0)
-        Behavior on color { ColorAnimation { duration: 140 } }
-        Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
-        Canvas {
+        Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
+        Behavior on scale { NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve } }
+        BundledIcon {
             id: controlBtGlyph
             anchors.centerIn: parent
             width: 21; height: 21
-            property bool active: bluetoothCard.service.bluetoothPowered
-            property color glyphColor: ThemeService.tileGlyph
+            name: "bluetooth.control"
+            color: ThemeService.tileGlyph
             opacity: bluetoothCard.service.bluetoothChangeInProgress ? 0 : 1
-            Behavior on opacity { NumberAnimation { duration: 140 } }
-            onActiveChanged: requestPaint()
-            onGlyphColorChanged: requestPaint()
-            onPaint: {
-                const ctx = getContext("2d")
-                ctx.reset()
-                ctx.strokeStyle = glyphColor
-                ctx.lineWidth = 2.0
-                ctx.lineCap = "round"
-                ctx.lineJoin = "round"
-                ctx.scale(0.78, 0.78)
-                ctx.beginPath()
-                ctx.moveTo(13.5, 2.5)
-                ctx.lineTo(20, 9)
-                ctx.lineTo(13.5, 15)
-                ctx.lineTo(20, 21)
-                ctx.lineTo(13.5, 26.5)
-                ctx.lineTo(13.5, 2.5)
-                ctx.moveTo(7, 8.5)
-                ctx.lineTo(13.5, 15)
-                ctx.lineTo(7, 21.5)
-                ctx.stroke()
-            }
-            Connections {
-                target: ThemeService
-                function onIsDarkChanged() { controlBtGlyph.requestPaint() }
-            }
+            Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
         }
         // Powering BlueZ's adapter genuinely takes a second or more; a
         // flat opacity dim alone reads as "stuck", not "working". Spin an
@@ -75,7 +49,7 @@ ControlCenterCard {
             width: 21; height: 21
             opacity: bluetoothCard.service.bluetoothChangeInProgress ? 1 : 0
             visible: opacity > 0.01
-            Behavior on opacity { NumberAnimation { duration: 140 } }
+            Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
             Canvas {
                 id: bluetoothBusyArc
@@ -104,6 +78,7 @@ ControlCenterCard {
                 running: bluetoothBusySpinner.visible && bluetoothCard.service.bluetoothChangeInProgress
                 loops: Animation.Infinite
                 from: 0; to: 360
+                // motion-exception: keep the 900ms loading rotation period.
                 duration: 900
             }
         }
@@ -124,7 +99,7 @@ ControlCenterCard {
             width: parent.width
             text: "Bluetooth"
             color: bluetoothCard.materialForegroundColor
-            font { pixelSize: 12; weight: Font.Bold; family: "Noto Sans CJK SC" }
+            font { pixelSize: 12; weight: Font.Bold; family: AppearanceTokens.typography.textFamily }
         }
         GlassText {
             width: parent.width
@@ -132,15 +107,15 @@ ControlCenterCard {
                 ? I18n.tr("On") : I18n.tr("Off")
             color: bluetoothCard.materialSecondaryForegroundColor
             opacity: 1.0
-            font { pixelSize: 10; family: "Noto Sans CJK SC" }
+            font { pixelSize: 10; family: AppearanceTokens.typography.textFamily }
         }
     }
-    GlassText {
+    BundledIcon {
         anchors { right: parent.right; rightMargin: 8; verticalCenter: parent.verticalCenter }
-        text: "›"
+        name: "bluetooth.details"
         color: bluetoothCard.materialSecondaryForegroundColor
         opacity: 0.60
-        font { pixelSize: 14; weight: Font.Bold }
+        size: 14
     }
     MouseArea {
         id: bluetoothPagePointer

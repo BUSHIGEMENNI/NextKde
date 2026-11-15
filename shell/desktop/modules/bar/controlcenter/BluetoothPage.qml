@@ -21,13 +21,13 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: I18n.tr("Bluetooth is off")
                 color: AppearanceTokens.content.glassInk()
-                font { pixelSize: 13; weight: Font.Bold; family: "Noto Sans CJK SC" }
+                font { pixelSize: 13; weight: Font.Bold; family: AppearanceTokens.typography.textFamily }
             }
             GlassText {
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: I18n.tr("Turn on the switch above to connect devices")
                 color: AppearanceTokens.content.glassInk()
-                font { pixelSize: 11; family: "Noto Sans CJK SC" }
+                font { pixelSize: 11; family: AppearanceTokens.typography.textFamily }
             }
         }
     }
@@ -51,7 +51,7 @@ Item {
                 anchors { left: parent.left; verticalCenter: parent.verticalCenter }
                 text: I18n.tr("Devices")
                 color: AppearanceTokens.content.glassInk()
-                font { pixelSize: 10; weight: Font.DemiBold; family: "Noto Sans CJK SC" }
+                font { pixelSize: 10; weight: Font.DemiBold; family: AppearanceTokens.typography.textFamily }
             }
 
             GlassText {
@@ -59,7 +59,7 @@ Item {
                 visible: bluetoothSubmenuView.service.bluetoothDevicesRefreshInProgress
                 text: I18n.tr("Refreshing…")
                 color: AppearanceTokens.content.glassInk()
-                font { pixelSize: 9; family: "Noto Sans CJK SC" }
+                font { pixelSize: 9; family: AppearanceTokens.typography.textFamily }
             }
         }
 
@@ -92,46 +92,21 @@ Item {
                     && btRowMouse.containsMouse
                     ? (AppearanceTokens.surface.pick(AppearanceTokens.colors.surfaceContainerHigh, ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.12) : Qt.rgba(0, 0, 0, 0.06)))
                     : "transparent"
-                Behavior on color { ColorAnimation { duration: 100 } }
+                Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.instant.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
-                GlassText {
+                BundledIcon {
                     visible: !!modelData.connected
                     anchors { left: parent.left; leftMargin: 8; verticalCenter: parent.verticalCenter }
-                    text: "✓"
+                    name: "bluetooth.connected"
                     color: AppearanceTokens.content.glassInk()
-                    font { pixelSize: 13; weight: Font.Bold }
+                    size: 13
                 }
 
-                Canvas {
-                    anchors {
-                        left: parent.left
-                        leftMargin: 26
-                        verticalCenter: parent.verticalCenter
-                    }
-                    width: 16
-                    height: 16
-                    readonly property color ink: AppearanceTokens.content.glassInk()
-                    onInkChanged: requestPaint()
-                    onPaint: {
-                        const ctx = getContext("2d")
-                        ctx.reset()
-                        ctx.strokeStyle = modelData.connected ? "#0a84ff" : ink
-                        ctx.lineWidth = 1.6
-                        ctx.lineCap = "round"
-                        ctx.lineJoin = "round"
-                        ctx.scale(0.55, 0.55)
-                        ctx.beginPath()
-                        ctx.moveTo(13.5, 2.5)
-                        ctx.lineTo(20, 9)
-                        ctx.lineTo(13.5, 15)
-                        ctx.lineTo(20, 21)
-                        ctx.lineTo(13.5, 26.5)
-                        ctx.lineTo(13.5, 2.5)
-                        ctx.moveTo(7, 8.5)
-                        ctx.lineTo(13.5, 15)
-                        ctx.lineTo(7, 21.5)
-                        ctx.stroke()
-                    }
+                BundledIcon {
+                    anchors { left: parent.left; leftMargin: 26; verticalCenter: parent.verticalCenter }
+                    width: 16; height: 16
+                    name: "bluetooth.device"
+                    color: modelData.connected ? "#0a84ff" : AppearanceTokens.content.glassInk()
                 }
 
                 Column {
@@ -149,13 +124,13 @@ Item {
                         text: modelData.name || I18n.tr("Unknown device")
                         elide: Text.ElideRight
                         color: AppearanceTokens.content.glassInk()
-                        font { pixelSize: 11; weight: modelData.connected ? Font.DemiBold : Font.Normal; family: "Noto Sans CJK SC" }
+                        font { pixelSize: 11; weight: modelData.connected ? Font.DemiBold : Font.Normal; family: AppearanceTokens.typography.textFamily }
                     }
 
                     GlassText {
                         text: modelData.connected ? I18n.tr("Connected") : I18n.tr("Not connected")
                         color: AppearanceTokens.content.glassInk()
-                        font { pixelSize: 9; family: "Noto Sans CJK SC" }
+                        font { pixelSize: 9; family: AppearanceTokens.typography.textFamily }
                     }
                 }
 
@@ -171,7 +146,7 @@ Item {
                         anchors.centerIn: parent
                         text: (modelData.battery || 0) + "%"
                         color: AppearanceTokens.content.glassInk()
-                        font { pixelSize: 10; family: "Noto Sans CJK SC" }
+                        font { pixelSize: 10; family: AppearanceTokens.typography.textFamily }
                     }
                 }
 
@@ -195,7 +170,7 @@ Item {
                 visible: submenuBtList.count === 0 && !bluetoothSubmenuView.service.bluetoothDevicesRefreshInProgress
                 text: I18n.tr("No paired devices found")
                 color: AppearanceTokens.content.glassInk()
-                font { pixelSize: 11; family: "Noto Sans CJK SC" }
+                font { pixelSize: 11; family: AppearanceTokens.typography.textFamily }
             }
 
             KosKineticScroll { flickable: submenuBtList }
@@ -217,14 +192,14 @@ Item {
             anchors { left: parent.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
             text: I18n.tr("Bluetooth settings…")
             color: AppearanceTokens.content.glassInk()
-            font { pixelSize: 11; weight: Font.DemiBold; family: "Noto Sans CJK SC" }
+            font { pixelSize: 11; weight: Font.DemiBold; family: AppearanceTokens.typography.textFamily }
         }
 
-        GlassText {
+        BundledIcon {
             anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
-            text: "›"
+            name: "bluetooth.settings"
             color: AppearanceTokens.content.glassInk()
-            font { pixelSize: 13; weight: Font.Bold }
+            size: 13
         }
 
         ControlCenterSelection {

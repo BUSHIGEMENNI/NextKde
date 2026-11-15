@@ -59,12 +59,13 @@ public:
                           KWin::WindowPaintData &, const WindowSourceMorph &) override;
 
 private:
+    void preserveDesktopStack();
     void updateNativeThumbnails();
     void refreshGtkNativeControls(KWin::EffectWindow *);
     QSet<KWin::EffectWindow *> m_gtkNativeWindows;
     uint32_t m_gtkNativeAtom = 0;
     void paintButtons(const KWin::RenderTarget &, const KWin::RenderViewport &,
-                      KWin::EffectWindow *, const KWin::Region &,
+                      KWin::EffectWindow *, int mask, const KWin::Region &,
                       const KWin::WindowPaintData &, bool sourceCapture);
     KWin::Region visibleRegionFor(KWin::EffectWindow *window,
                                   const KWin::RenderViewport &viewport,

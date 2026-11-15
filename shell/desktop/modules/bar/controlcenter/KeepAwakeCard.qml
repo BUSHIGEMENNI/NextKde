@@ -24,21 +24,15 @@ ControlCenterCard {
             ? ThemeService.tileActiveFill
             : (ThemeService.isDark ? Qt.rgba(1, 1, 1, 0.22) : Qt.rgba(0, 0, 0, 0.05))
         opacity: keepAwakePointer.containsMouse && !keepAwakePointer.pressed ? 1.0 : 0.92
-        Behavior on color { ColorAnimation { duration: 140 } }
+        Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
-        Image {
+        BundledIcon {
             anchors.centerIn: parent
             width: 18; height: 18
-            source: BundledIcons.source("keep-awake")
-            sourceSize.width: 36; sourceSize.height: 36
-            fillMode: Image.PreserveAspectFit
-            smooth: true
-            layer.enabled: true
-            layer.effect: MultiEffect {
-                colorization: 1.0
-                colorizationColor: keepAwakeCard.service.keepAwakeEnabled
+            name: "controlCenter.keepAwake"
+
+            color: keepAwakeCard.service.keepAwakeEnabled
                     ? ThemeService.tileActiveGlyph : ThemeService.tileGlyph
-            }
         }
     }
     GlassText {
@@ -46,7 +40,7 @@ ControlCenterCard {
         text: I18n.tr("Keep Awake")
         elide: Text.ElideRight
         color: ThemeService.foregroundColor
-        font { pixelSize: 12; weight: Font.Medium; family: "Noto Sans CJK SC" }
+        font { pixelSize: 12; weight: Font.Medium; family: AppearanceTokens.typography.textFamily }
     }
     GlassText {
         anchors { left: keepAwakeDisc.right; leftMargin: 8; right: parent.right; rightMargin: 8; bottom: parent.bottom; bottomMargin: 7 }
@@ -58,7 +52,7 @@ ControlCenterCard {
         color: keepAwakeCard.service.keepAwakeEnabled
             ? ThemeService.tileActiveGlyph : ThemeService.foregroundColor
         opacity: keepAwakeCard.service.keepAwakeEnabled ? 0.9 : 0.5
-        font { pixelSize: 11; family: "Noto Sans CJK SC" }
+        font { pixelSize: 11; family: AppearanceTokens.typography.textFamily }
     }
     ToolTip.visible: keepAwakePointer.containsMouse
     ToolTip.delay: 500

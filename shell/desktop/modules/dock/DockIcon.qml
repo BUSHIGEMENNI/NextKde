@@ -455,13 +455,19 @@ Item {
     SequentialAnimation {
         id: attentionPulse
         ParallelAnimation {
+            // motion-exception: Attention pulse keeps its coupled lift, glow and elastic return.
             NumberAnimation { target: icon; property: "_attentionScale"; to: 1.18; duration: 115; easing.type: Easing.OutCubic }
+            // motion-exception: Attention pulse keeps its coupled lift, glow and elastic return.
             NumberAnimation { target: icon; property: "_attentionLift"; to: -6; duration: 115; easing.type: Easing.OutCubic }
+            // motion-exception: Attention pulse keeps its coupled lift, glow and elastic return.
             NumberAnimation { target: icon; property: "_attentionGlow"; to: 1.0; duration: 115; easing.type: Easing.OutCubic }
         }
         ParallelAnimation {
+            // motion-exception: Attention pulse keeps its coupled lift, glow and elastic return.
             NumberAnimation { target: icon; property: "_attentionScale"; to: 1.0; duration: 210; easing.type: Easing.OutBack }
+            // motion-exception: Attention pulse keeps its coupled lift, glow and elastic return.
             NumberAnimation { target: icon; property: "_attentionLift"; to: 0; duration: 210; easing.type: Easing.OutBounce }
+            // motion-exception: Attention pulse keeps its coupled lift, glow and elastic return.
             NumberAnimation { target: icon; property: "_attentionGlow"; to: 0; duration: 210; easing.type: Easing.OutCubic }
         }
     }
@@ -525,6 +531,7 @@ Item {
     property Component _contextMenuComponent: Component {
         ContextMenu {
             capsuleReveal: true
+            reserveIconSpace: true
             property bool hasBeenVisible: false
             anchorItem: icon
             position: ConfigService.position
@@ -707,11 +714,13 @@ Item {
         loops: Animation.Infinite
         NumberAnimation {
             target: icon; property: "rotation"
+            // motion-exception: Edit-mode wiggle retains its periodic cadence.
             from: -3.4; to: 3.4; duration: 105
             easing.type: Easing.InOutSine
         }
         NumberAnimation {
             target: icon; property: "rotation"
+            // motion-exception: Edit-mode wiggle retains its periodic cadence.
             from: 3.4; to: -3.4; duration: 115
             easing.type: Easing.InOutSine
         }
@@ -747,6 +756,7 @@ Item {
                 && !icon._glassSelectionHighlight) || icon.showUrgentBackground
         z: -1
         Behavior on color {
+            // motion-exception: Sub-tier hover highlight follows the physical pointer response.
             ColorAnimation { duration: DockAnimation.iconHighlightDuration; easing.type: Easing.OutCubic }
         }
     }
@@ -843,7 +853,7 @@ Item {
         property: "opacity"
         to: 0.0
         duration: DockAnimation.iconPressHighlightDuration
-        easing.type: DockAnimation.elementExitEasing
+        easing.type: Easing.InCubic // motion-exception: 45ms press-highlight release retains its original response.
     }
     function setPressFeedback(pressed) {
         pressFadeIn.stop()
@@ -898,7 +908,7 @@ Item {
         visible: opacity > 0.01
         z: 2
         Behavior on opacity {
-            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve }
         }
     }
 
@@ -927,8 +937,10 @@ Item {
         scale: opacity > 0 ? 1 : 0
         visible: opacity > 0.01
         z: 3
+        // motion-exception: Badge fade remains coupled to its OutBack inflation.
         Behavior on opacity { NumberAnimation { duration: 140 } }
         Behavior on scale {
+            // motion-exception: Badge fade remains coupled to its OutBack inflation.
             NumberAnimation { duration: 160; easing.type: Easing.OutBack }
         }
 
@@ -976,7 +988,7 @@ Item {
         anchors.bottomMargin: icon.runningIndicatorGap
 
         Behavior on opacity {
-            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve }
         }
 
         Row {
@@ -995,6 +1007,7 @@ Item {
                         ThemeService.foregroundColor.b, 0.95)
                     Behavior on color {
                         enabled: runningIndicator.opacity > 0.01
+                        // motion-exception: Running-indicator color follows the sub-tier hover highlight.
                         ColorAnimation { duration: DockAnimation.iconHighlightDuration; easing.type: Easing.OutCubic }
                     }
                 }
@@ -1008,6 +1021,7 @@ Item {
             color: ThemeService.accentColor
             Behavior on color {
                 enabled: visible
+                // motion-exception: Running-indicator color follows the sub-tier hover highlight.
                 ColorAnimation { duration: DockAnimation.iconHighlightDuration; easing.type: Easing.OutCubic }
             }
         }
@@ -1083,19 +1097,19 @@ Item {
                 const pinned = icon.isPinnedItem || DockModelService.isAppPinned(icon.appId)
                 menu.clear()
                 if (icon.isWindowItem) {
-                    menu.addItem("window-restore", I18n.tr("Activate window"), "activate")
-                    menu.addItem("window-minimize", I18n.tr("Minimize"), "minimize")
-                    menu.addItem("window-close", I18n.tr("Close window"), "close")
-                    menu.addItem("window-new", I18n.tr("New window"), "new_window")
-                    menu.addItem(pinned ? "unpin" : "pin",
+                    menu.addItem("dock.menu.activate", I18n.tr("Activate window"), "activate")
+                    menu.addItem("dock.menu.minimize", I18n.tr("Minimize"), "minimize")
+                    menu.addItem("dock.menu.close", I18n.tr("Close window"), "close")
+                    menu.addItem("dock.menu.new_window", I18n.tr("New window"), "new_window")
+                    menu.addItem(pinned ? "dock.menu.unpin" : "dock.menu.pin",
                         pinned ? I18n.tr("Unpin") : I18n.tr("Pin this app"), pinned ? "unpin" : "pin")
                 } else {
-                    menu.addItem("folder-open", I18n.tr("Open"), "open")
-                    menu.addItem("window-new", I18n.tr("New window"), "new_window")
-                    menu.addItem(pinned ? "unpin" : "pin",
+                    menu.addItem("dock.menu.open", I18n.tr("Open"), "open")
+                    menu.addItem("dock.menu.new_window", I18n.tr("New window"), "new_window")
+                    menu.addItem(pinned ? "dock.menu.unpin" : "dock.menu.pin",
                         pinned ? I18n.tr("Unpin") : I18n.tr("Pin this app"), pinned ? "unpin" : "pin")
                     if (icon.isRunning)
-                        menu.addItem("window-close", I18n.tr("Close all windows"), "close_all")
+                        menu.addItem("dock.menu.close_all", I18n.tr("Close all windows"), "close_all")
                 }
                 DockModelService.activeContextMenu = menu
                 DockModelService.openDockPopup(menu)

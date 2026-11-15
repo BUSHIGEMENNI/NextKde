@@ -140,6 +140,13 @@ if(BUILD_TESTING)
                 ${CMAKE_CURRENT_SOURCE_DIR}/shell/desktop/modules/deskcenter/test_widget_layout.mjs
         )
         set_tests_properties(kos-deskcenter.widget-layout PROPERTIES TIMEOUT 10)
+        # Widget geometry must look identical at 60 and 240 Hz; the replaced
+        # SpringAnimation advanced in fixed 16 ms steps.
+        add_test(NAME kos-deskcenter.motion-spring
+            COMMAND ${KOS_NODE_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/shell/desktop/modules/common/test_motion_spring.mjs
+        )
+        set_tests_properties(kos-deskcenter.motion-spring PROPERTIES LABELS logic TIMEOUT 10)
         add_test(NAME kos-ui.visual-contract
             COMMAND ${KOS_NODE_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/shared/qml/test_visual_contract.mjs
@@ -215,6 +222,15 @@ if(BUILD_TESTING)
         find_program(KOS_QMLTESTRUNNER_EXECUTABLE NAMES qmltestrunner
             HINTS /usr/lib/qt6/bin /usr/lib64/qt6/bin)
         if(KOS_QMLTESTRUNNER_EXECUTABLE)
+            if(KOS_BUILD_PLATFORM OR KOS_BUILD_KWIN_PLUGINS)
+                add_test(NAME kos-shell.startup-reveal
+                    COMMAND ${KOS_NODE_EXECUTABLE}
+                        ${CMAKE_CURRENT_SOURCE_DIR}/tests/shell-startup/reveal.mjs
+                        ${KOS_QMLTESTRUNNER_EXECUTABLE})
+                set_tests_properties(kos-shell.startup-reveal PROPERTIES
+                    LABELS "ui;headless" TIMEOUT 30
+                    ENVIRONMENT "QML_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml")
+            endif()
             add_test(NAME kos-shell.stage-visibility-qml
                 COMMAND ${KOS_NODE_EXECUTABLE}
                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/stage-visibility/run.mjs
@@ -299,7 +315,7 @@ if(BUILD_TESTING)
                     ${KOS_QUICKSHELL_EXECUTABLE})
             set_tests_properties(kos-shell.weather-refresh PROPERTIES
                 LABELS "ui;headless" TIMEOUT 20
-                ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
+                ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software;QML_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml")
         endif()
         if(KOS_QUICKSHELL_EXECUTABLE)
             add_test(NAME kos-shell.dock-surface
@@ -415,6 +431,18 @@ if(BUILD_TESTING)
                     ${KOS_QUICKSHELL_EXECUTABLE}
             )
             set_tests_properties(kos-shell.glass-ink PROPERTIES TIMEOUT 15)
+            # 使用系统字体: reads the font.family every surface actually resolved,
+            # in both states of the option. A Text that keeps its designed
+            # family still renders a plausible interface, so only the resolved
+            # value catches a broken link in the chain.
+            add_test(NAME kos-shell.system-font
+                COMMAND ${KOS_NODE_EXECUTABLE}
+                    ${CMAKE_CURRENT_SOURCE_DIR}/tests/system-font/run.mjs
+                    ${KOS_QUICKSHELL_EXECUTABLE}
+            )
+            set_tests_properties(kos-shell.system-font PROPERTIES TIMEOUT 30
+                LABELS "ui;headless"
+                ENVIRONMENT "QML_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml;QML2_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml")
             # Reads the resolved plate and ink of the Bar's mac style in the
             # states its slider can put it in. The ink follows the wallpaper
             # blended with the plate at the chosen tint, and an ink that read
@@ -512,7 +540,17 @@ if(BUILD_TESTING)
             COMMAND ${KOS_NODE_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/tests/traditional-color/test_traditional_color.mjs
         )
-        set_tests_properties(kos-ui.traditional-color PROPERTIES TIMEOUT 10)
+        # The full swatch/contrast sweep takes over 20s on the supported VM.
+        # Keep all samples and allow slower CPU-only runners to finish.
+        set_tests_properties(kos-ui.traditional-color PROPERTIES TIMEOUT 60)
+        # The kdeglobals `font=` grammar 使用系统字体 builds on, without Qt: the
+        # shell test above proves the chain, this one pins the parser's corner
+        # cases (a serialised QFont, a family alone, the wrong group).
+        add_test(NAME kos-ui.system-font-policy
+            COMMAND ${KOS_NODE_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/system-font/policy.test.mjs
+        )
+        set_tests_properties(kos-ui.system-font-policy PROPERTIES TIMEOUT 10 LABELS logic)
         # These four were written and passing but never added to the suite, so
         # nothing ran them. They cover the Dock's adaptive layout and auto-hide
         # math, the appearance configuration migration, and the platform
@@ -531,6 +569,11 @@ if(BUILD_TESTING)
                 ${CMAKE_CURRENT_SOURCE_DIR}/shell/desktop/modules/deskcenter/test_desktop_outputs.mjs
         )
         set_tests_properties(kos-deskcenter.desktop-outputs PROPERTIES TIMEOUT 10)
+        add_test(NAME kos-notifications.activation
+            COMMAND ${KOS_NODE_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/shell/desktop/modules/notifications/test_notification_activation.mjs
+        )
+        set_tests_properties(kos-notifications.activation PROPERTIES LABELS logic TIMEOUT 10)
         add_test(NAME kos-deskcenter.desktop-stack
             COMMAND ${KOS_NODE_EXECUTABLE}
                 ${CMAKE_CURRENT_SOURCE_DIR}/platform/tests/test_desktop_stack.mjs
@@ -578,6 +621,22 @@ if(BUILD_TESTING)
     find_program(KOS_INTERACTION_QMLTEST NAMES qmltestrunner qmltestrunner6
         HINTS /usr/lib/qt6/bin)
     find_program(KOS_INTERACTION_QUICKSHELL NAMES quickshell)
+    if(KOS_NODE_EXECUTABLE AND KOS_INTERACTION_QMLTEST)
+        add_test(NAME kos-shell.inputmethod-motion
+            COMMAND ${KOS_NODE_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/inputmethod/run.mjs
+                ${KOS_INTERACTION_QMLTEST})
+        set_tests_properties(kos-shell.inputmethod-motion PROPERTIES LABELS "ui;headless" TIMEOUT 20)
+    endif()
+    if(KOS_NODE_EXECUTABLE)
+        add_test(NAME kos-shell.inputmethod-placement
+            COMMAND ${KOS_NODE_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/shell/desktop/modules/inputmethod/test_inputmethod_placement.mjs)
+        add_test(NAME kos-shell.inputmethod-status
+            COMMAND ${KOS_NODE_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/shell/desktop/modules/inputmethod/test_inputmethod_status_dismissal.mjs)
+        set_tests_properties(kos-shell.inputmethod-placement kos-shell.inputmethod-status
+            PROPERTIES LABELS logic TIMEOUT 10)
+    endif()
     find_program(KOS_TEST_KWIN NAMES kwin_wayland)
     find_program(KOS_TEST_DBUS_RUN NAMES dbus-run-session)
     if(KOS_PYTHON_EXECUTABLE AND KOS_INTERACTION_QUICKSHELL AND KOS_TEST_KWIN AND KOS_TEST_DBUS_RUN)
@@ -590,7 +649,9 @@ if(BUILD_TESTING)
             COMMAND ${KOS_PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/status-area/run-panels.py --vulkan)
         add_test(NAME kos-ui.status-panels-opengl
             COMMAND ${KOS_PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/status-area/run-panels.py --opengl --scale-2)
-        set_tests_properties(kos-ui.status-panels kos-ui.status-panels-opengl PROPERTIES
+        add_test(NAME kos-ui.battery-mode-geometry
+            COMMAND ${KOS_PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/status-area/run-panels.py --battery-modes --opengl --scale-105)
+        set_tests_properties(kos-ui.status-panels kos-ui.status-panels-opengl kos-ui.battery-mode-geometry PROPERTIES
             ENVIRONMENT "QML_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml;QML2_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml"
             LABELS "ui;compositor" TIMEOUT 45 RUN_SERIAL TRUE)
         add_test(NAME kos-ui.control-center-modules
@@ -603,6 +664,29 @@ if(BUILD_TESTING)
         set_tests_properties(kos-ui.clipboard-placement PROPERTIES LABELS ui TIMEOUT 40)
     endif()
     if(KOS_INTERACTION_QMLTEST)
+        # Exercise the shipping controller without importing Quickshell-only
+        # notification singletons into the plain Qt QuickTest runner.
+        set(kos_notification_test_module "${CMAKE_BINARY_DIR}/tests/qml/Kos/Test/NotificationOpen")
+        foreach(component NotificationOpenController.qml NotificationActivation.mjs)
+            configure_file(
+                "${CMAKE_CURRENT_SOURCE_DIR}/shell/desktop/modules/notifications/${component}"
+                "${kos_notification_test_module}/${component}" COPYONLY)
+        endforeach()
+        file(WRITE "${kos_notification_test_module}/qmldir"
+            "module Kos.Test.NotificationOpen\nNotificationOpenController 1.0 NotificationOpenController.qml\n")
+        add_test(NAME kos-shell.notification-open
+            COMMAND ${KOS_INTERACTION_QMLTEST}
+                -import "${CMAKE_BINARY_DIR}/tests/qml"
+                -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/notification-open/tst_open.qml)
+        set_tests_properties(kos-shell.notification-open PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+            LABELS "ui;headless" TIMEOUT 20)
+        add_test(NAME kos-ui.motion-tokens
+            COMMAND ${KOS_INTERACTION_QMLTEST}
+                -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/motion-tokens)
+        set_tests_properties(kos-ui.motion-tokens PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software"
+            LABELS "ui;headless" TIMEOUT 20)
         add_test(NAME kos-ui.interaction-controls
             COMMAND ${KOS_INTERACTION_QMLTEST}
                 -input ${CMAKE_CURRENT_SOURCE_DIR}/tests/interaction-controls/tst_controls.qml)
@@ -614,9 +698,13 @@ if(BUILD_TESTING)
         # whose embedded plugins are unavailable to plain qmltestrunner.
         set(kos_motion_test_module "${CMAKE_BINARY_DIR}/tests/qml/Kos/Test/LauncherMotion")
         foreach(component LauncherMotion LauncherIconMotion)
-            configure_file(
-                "${CMAKE_CURRENT_SOURCE_DIR}/shell/desktop/modules/applauncher/${component}.qml"
-                "${kos_motion_test_module}/${component}.qml" COPYONLY)
+            set(motion_source "${CMAKE_CURRENT_SOURCE_DIR}/shell/desktop/modules/applauncher/${component}.qml")
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${motion_source}")
+            file(READ "${motion_source}" motion_qml)
+            string(REPLACE "../../../shared/qml/foundation"
+                "file:${CMAKE_CURRENT_SOURCE_DIR}/shared/qml/foundation" motion_qml "${motion_qml}")
+            file(MAKE_DIRECTORY "${kos_motion_test_module}")
+            file(WRITE "${kos_motion_test_module}/${component}.qml" "${motion_qml}")
         endforeach()
         file(WRITE "${kos_motion_test_module}/qmldir"
             "module Kos.Test.LauncherMotion\nLauncherMotion 1.0 LauncherMotion.qml\nLauncherIconMotion 1.0 LauncherIconMotion.qml\n")
@@ -668,6 +756,8 @@ if(BUILD_TESTING)
             COMMAND ${KOS_PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/widget-experience/run.py --private-compositor)
         add_test(NAME kos-ui.widget-resize
             COMMAND ${KOS_PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/widget-resize/run.py --private-compositor)
+        add_test(NAME kos-ui.desktop-overview
+            COMMAND ${KOS_PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/desktop-overview/run.py --private-compositor)
         add_test(NAME kos-ui.popup-motion
             COMMAND ${KOS_PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/popup-motion/run.py)
         if(KOS_BUILD_KWIN_PLUGINS)
@@ -684,6 +774,9 @@ if(BUILD_TESTING)
             ENVIRONMENT "QML_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml;QML2_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml")
         set_tests_properties(kos-ui.widget-experience PROPERTIES
             LABELS "ui;widgets" TIMEOUT 90
+            ENVIRONMENT "QML_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml;QML2_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml")
+        set_tests_properties(kos-ui.desktop-overview PROPERTIES
+            LABELS "ui;widgets" TIMEOUT 60 RUN_SERIAL TRUE
             ENVIRONMENT "QML_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml;QML2_IMPORT_PATH=${CMAKE_BINARY_DIR}/qml")
     endif()
     if(KOS_PYTHON_EXECUTABLE)
@@ -773,6 +866,13 @@ if(BUILD_TESTING)
     target_link_libraries(kos-desktop-glass-blur-test PRIVATE Qt6::Core Qt6::Gui)
     add_test(NAME kos-glass.desktop-blur COMMAND kos-desktop-glass-blur-test)
     set_tests_properties(kos-glass.desktop-blur PROPERTIES LABELS platform TIMEOUT 10)
+    qt_add_executable(kos-overview-panel-projection-test
+        kwin/glass-effect/tests/test_overview_panel_projection.cpp)
+    target_link_libraries(kos-overview-panel-projection-test PRIVATE Qt6::Quick)
+    add_test(NAME kos-glass.overview-panel-projection COMMAND kos-overview-panel-projection-test)
+    set_tests_properties(kos-glass.overview-panel-projection PROPERTIES
+        LABELS platform TIMEOUT 10
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QT_QUICK_BACKEND=software")
 endif()
 
 qt_standard_project_setup(REQUIRES 6.5)

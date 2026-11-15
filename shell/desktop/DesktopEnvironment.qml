@@ -16,6 +16,7 @@ import qs.desktop.modules.common
 import qs.desktop.modules.platform
 import qs.desktop.modules.shortcuts
 import qs.desktop.modules.weather
+import qs.desktop.modules.inputmethod
 
 Item {
     id: shell
@@ -63,6 +64,8 @@ Item {
                     running: ThemeWallpaperService.running,
                     waiting: ThemeWallpaperService.idleDelay.running,
                     hasVisibleWindows: ThemeWallpaperService.hasVisibleWindows,
+                    eligible: ThemeWallpaperService.idleEligible,
+                    locked: ThemeWallpaperService.locked,
                     phase: ThemeWallpaperService.phase,
                     preview: ThemeWallpaperService.preview
                 },
@@ -102,6 +105,13 @@ Item {
                 },
                 spatialEnabled: AppearanceConfigService.spatialWallpaperEnabled,
                 spatialReady: SpatialWallpaperService.ready,
+                spatialMotion: {
+                    running: SpatialWallpaperService.motionRunning,
+                    waiting: SpatialWallpaperService.motion.idleDelay.running,
+                    hasVisibleWindows: SpatialWallpaperService.motion.hasVisibleWindows,
+                    eligible: SpatialWallpaperService.motion.idleEligible,
+                    locked: SpatialWallpaperService.motion.locked
+                },
                 spatialPrepared: SpatialWallpaperService.prepared,
                 spatialBusy: SpatialWallpaperService.requestInFlight,
                 spatialPreparing: SpatialWallpaperService.preparationRequested,
@@ -247,7 +257,12 @@ Item {
     // An unavailable platform fails the write immediately; ShortcutsService
     // publishes again once its config is ready and the transport reconnects.
     Component.onCompleted: {
+        StartupReveal.initialize()
         IconThemeReloadService.initialize()
+        // Watch kdeglobals so 使用系统字体 follows a font changed in System
+        // Settings without restarting the shell, and so the first value is
+        // available before any surface binds its family.
+        SystemFontService.initialize()
         ShortcutsService.applyToPlatform()
         // Warm the theme pack scan at startup: a persisted pack themeId is
         // validated against installed packs on every shell start, and the
@@ -485,8 +500,15 @@ Item {
                 barLayoutMode: AppearanceConfigService.barLayoutMode,
                 barMacStyle: AppearanceConfigService.barMacStyle,
                 barMacTint: AppearanceConfigService.barMacTint,
+                reduceMotion: AppearanceConfigService.reduceMotion,
+                startupRevealDuration: AppearanceConfigService.startupRevealDuration,
                 dockWindowAnimationStyle:
                     AppearanceConfigService.dockWindowAnimationStyle,
+                // The family the desktop would draw with, so the Settings page
+                // can name it instead of describing the option in the abstract.
+                // This is kdeglobals' [General] font= family, resolved.
+                systemFontFamily: SystemFontService.family,
+                desktopFontFamily: AppearanceConfigService.desktopFontFamily,
                 // Same reason as materialColorSwatches above: these are arrays,
                 // and a plain JSON string crosses the hand-written C++ whitelist
                 // with no conversion left to get wrong. They carry the *hidden*
@@ -606,13 +628,22 @@ Item {
             return snapshot()
         }
 
+        function updateStartupMotion(reduced: bool, duration: int): string {
+            AppearanceConfigService.updateStartupMotion(reduced, duration)
+            return snapshot()
+        }
+
         function updateDockWindowAnimationStyle(style: string): string {
             AppearanceConfigService.updateDockWindowAnimationStyle(style)
             return snapshot()
         }
 
-        // Per-surface visibility. `visible` is the wanted state, so the switch
-        // in the Settings page holds the same value it displays.
+        function updateDesktopFontFamily(family: string): string {
+            AppearanceConfigService.updateDesktopFontFamily(family)
+            return snapshot()
+        }
+
+
         function updateDeskCenterWidgetVisibility(id: string, visible: bool): string {
             AppearanceConfigService.setDeskCenterWidgetVisible(id, visible)
             return snapshot()
@@ -701,11 +732,13 @@ Item {
     // values sourced from the live Shell connections so the UI reports what
     // is actually connected, not merely which units were installed.
     IpcHandler {
+        id: integrationStatusIpc
         target: "integration-status"
 
         function snapshot(): string {
             return JSON.stringify({
                 shellReady: true,
+                startupReveal: { phase: StartupReveal.phase, progress: StartupReveal.progress },
                 platformConnected: PlatformClient.connected,
                 dataConnected: DataClient.connected,
                 outputAvailable: ScreenLifecycle.outputAvailable,
@@ -715,7 +748,34 @@ Item {
                 barExpected: !shell.barIntegratedWithDock,
                 barVisible: desktopBar.windowVisible,
                 dockVisible: desktopDock.windowVisible,
+                inputMethodEnabled: InputMethodService.userEnabled,
+                inputMethodActive: InputMethodService.takeoverActive,
+                inputMethodChanging: InputMethodService.changing,
+                inputMethodError: InputMethodService.error,
+                inputMethodPresentation: InputMethodConfigService.snapshot(),
             })
+        }
+    }
+
+    IpcHandler {
+        target: "inputmethod-settings"
+
+        function snapshot(): string {
+            return JSON.stringify({enabled: InputMethodService.enabled,
+                changing: InputMethodService.changing, error: InputMethodService.error,
+                candidateCount: InputMethodService.candidates.length,
+                visible: InputMethodService.visible, panels: inputMethodPopup.inspect()})
+        }
+
+        function setEnabled(enabled: bool): string {
+            InputMethodService.setEnabled(enabled)
+            return JSON.stringify({ enabled: InputMethodService.userEnabled })
+        }
+
+        function updatePresentation(patch: string): string {
+            try { InputMethodConfigService.update(JSON.parse(patch)) }
+            catch (error) { console.warn("[InputMethodConfig] Invalid update: " + error) }
+            return integrationStatusIpc.snapshot()
         }
     }
 
@@ -746,6 +806,10 @@ Item {
         }
     }
 
+    // The login spinner runs in its own process so it keeps moving while this
+    // one is busy building the desktop; see StartupSplash.qml.
+    StartupSplash {}
+
     QuickSearch {
         id: quickSearch
     }
@@ -760,6 +824,8 @@ Item {
     NotificationCenter {
         id: notificationCenter
     }
+
+    InputMethodPopup { id: inputMethodPopup }
 
     DeskCenter {}
     DesktopLyrics {}

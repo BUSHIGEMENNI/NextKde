@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Kos.Demo as Demo
 
 Item {
     id: harness
@@ -30,6 +31,20 @@ Item {
     SignalSpy { id: seedSpy; signalName: "materialSeedObserved" }
     SignalSpy { id: settingSpy; signalName: "settingRequested" }
 
+    QtObject {
+        id: candidateBridge
+        property string lastError: ""
+        property var calls: []
+        signal integrationSnapshotChanged(var state)
+        function integrationSnapshot() {}
+        function setInputMethodPresentation(patch) {
+            calls = calls.concat([{operation:"presentation", patch:patch}])
+        }
+        function setInputMethodEnabled(enabled) {
+            calls = calls.concat([{operation:"takeover", enabled:enabled}])
+        }
+    }
+
     TestCase {
         name: "SettingsPageContracts"
         when: windowShown
@@ -46,24 +61,50 @@ Item {
             settingSpy.clear()
         }
         function makePage(name) {
-            const topLevel = ["NotificationsSettingsPage", "WallpaperSettingsPage", "ServicesSettingsPage"].indexOf(name) >= 0
-            const component = Qt.createComponent((topLevel ? "../../" : "../../pages/") + name + ".qml")
+            const component = Qt.createComponent("../../pages/" + name + ".qml")
             compare(component.status, Component.Ready, component.errorString())
             const properties = name === "NotificationsSettingsPage"
                 ? {theme: harness.palette, width: 700} : {colors: harness.palette, width: 700}
             if (["ThemeSettingsPage", "DisplaySettingsPage", "GlassDebugPage"].indexOf(name) >= 0)
                 properties.glassStyles = harness.styles
+            if (name === "AboutSettingsPage")
+                properties.loadContributors = false
             const page = createTemporaryObject(component, harness, properties)
             verify(page !== null, component.errorString())
             return page
         }
         function test_isolated_load_data() {
             return ["FgSchedSettingsPage", "IntegrationStatusPage", "DockSettingsPage",
-                    "DisplaySettingsPage", "GlassDebugPage", "WidgetAppearanceSection",
+                    "DisplaySettingsPage", "FontSettingsPage", "GlassDebugPage", "WidgetAppearanceSection",
                     "IconAppearanceSection", "WindowAnimationSettingsPage", "ThemeSettingsPage",
                     "BarSettingsPage", "ShortcutsSettingsPage", "LauncherSettingsPage",
-                    "ResourceSchedulingSettings"]
+                    "ResourceSchedulingSettings", "AboutSettingsPage"]
                 .map(name => ({tag: name, name: name}))
+        }
+
+        function test_candidate_controls_only_update_presentation() {
+            const page = makePage("IntegrationStatusPage")
+            page.bridge = candidateBridge
+            candidateBridge.calls = []
+            page.snapshot = {inputMethodPresentation:{ready:true, fontSize:15, layout:"engine",
+                showAnnotations:true, highContrast:false, reduceMotion:false}}
+            const font = findChild(page, "candidateFontSizeSelect")
+            const layout = findChild(page, "candidateLayoutSelect")
+            const material = findChild(page, "candidateMaterialSelect")
+            verify(font !== null && layout !== null && material !== null)
+            font.selectionChanged(9)
+            layout.selectionChanged(2)
+            material.selectionChanged(1)
+            compare(candidateBridge.calls.length, 3)
+            compare(candidateBridge.calls[0].operation, "presentation")
+            compare(candidateBridge.calls[0].patch.fontSize, 21)
+            compare(candidateBridge.calls[1].patch.layout, "horizontal")
+            compare(candidateBridge.calls[2].operation, "presentation")
+            compare(candidateBridge.calls[2].patch.material, "frosted")
+            page.snapshot = {inputMethodPresentation:{ready:false}}
+            page.setCandidatePreference("highContrast", true)
+            compare(candidateBridge.calls.length, 3)
+            verify(!font.enabled)
         }
         function test_isolated_load(data) {
             const page = makePage(data.name)
@@ -82,12 +123,12 @@ Item {
             return items
         }
         function test_trailing_alignment_data() {
-            const pages = ["ThemeSettingsPage", "DisplaySettingsPage", "DockSettingsPage",
+            const pages = ["ThemeSettingsPage", "DisplaySettingsPage", "FontSettingsPage", "DockSettingsPage",
                 "BarSettingsPage", "LauncherSettingsPage", "WindowAnimationSettingsPage",
                 "IconAppearanceSection", "WidgetAppearanceSection", "GlassDebugPage",
                 "FgSchedSettingsPage", "ResourceSchedulingSettings", "ShortcutsSettingsPage",
                 "IntegrationStatusPage", "PowerSettingsPage", "NotificationsSettingsPage",
-                "WallpaperSettingsPage", "ServicesSettingsPage"]
+                "WallpaperSettingsPage", "ServicesSettingsPage", "AboutSettingsPage"]
             const cases = []
             for (const name of pages) {
                 for (const width of [560, 306]) cases.push({tag: name + "-" + width, name: name, width: width})
@@ -182,6 +223,57 @@ Item {
             page.applyState({shellStyle: "macos", materialColorSwatches: "broken-json"})
             compare(seedSpy.signalArguments[1][0], "")
         }
+        function test_fonts_are_a_theme_subpage() {
+            const component = Qt.createComponent("../../main.qml")
+            compare(component.status, Component.Ready, component.errorString())
+            const app = createTemporaryObject(component, harness, {currentPage: 1})
+            const themeLoader = findChild(app.contentItem, "ThemeSettingsPageLoader")
+            tryVerify(() => themeLoader.item !== null)
+            const entry = findChild(themeLoader.item, "theme-fonts-entry")
+            verify(entry !== null)
+            verify(waitForRendering(themeLoader.item))
+            const language = findChild(themeLoader.item, "theme-language-entry")
+            verify(language !== null)
+            verify(entry.mapToItem(themeLoader.item, 0, 0).y > language.mapToItem(themeLoader.item, 0, 0).y,
+                "Fonts follows the other Theme configuration rows")
+            const scroll = findChild(app.contentItem, "settings-page-scroll")
+            verify(scroll !== null)
+            scroll.contentY = Math.max(0, scroll.contentHeight - scroll.height)
+            verify(waitForRendering(entry))
+            const position = entry.mapToItem(app.contentItem, 0, 0)
+            verify(position.y >= 0 && position.y + entry.height < app.height,
+                "Fonts entry is reachable at the bottom of Theme")
+            const chevron = findChild(entry, "theme-fonts-chevron")
+            verify(chevron !== null && chevron.width > 0)
+            const chevronPosition = chevron.mapToItem(entry, 0, 0)
+            verify(chevronPosition.x + chevron.width <= entry.width,
+                "the trailing chevron stays inside its clickable row")
+            mouseClick(entry, entry.width / 2, entry.height / 2)
+            tryCompare(app, "currentPage", 14)
+            compare(app.navigationPage, 1, "Fonts retains Theme's sidebar selection")
+            tryCompare(app, "displayedPage", 14)
+            const fontsLoader = findChild(app.contentItem, "FontSettingsPageLoader")
+            tryVerify(() => fontsLoader.item !== null)
+            compare(fontsLoader.item.fontRoles.length, 6)
+            app.navigateHistory(-1)
+            compare(app.currentPage, 1)
+            app.navigateHistory(1)
+            compare(app.currentPage, 14)
+        }
+
+        function test_direct_fonts_entry_has_parent_navigation() {
+            const component = Qt.createComponent("../../main.qml")
+            compare(component.status, Component.Ready, component.errorString())
+            const app = createTemporaryObject(component, harness, {currentPage: 14})
+            verify(app.canGoBack, "direct font entry can return through the existing toolbar")
+            const actions = findChild(app.contentItem, "settingsHistoryNavigation")
+            verify(actions !== null)
+            actions.triggered(0)
+            compare(app.currentPage, 1)
+            actions.triggered(1)
+            compare(app.currentPage, 14)
+        }
+
         function test_history_toolbar_navigation() {
             const component = Qt.createComponent("../../main.qml")
             compare(component.status, Component.Ready, component.errorString())
@@ -201,7 +293,7 @@ Item {
             compare(centerY(actions), centerY(lights))
             compare(centerY(title), centerY(lights))
             compare(centerY(kdeSettings), centerY(lights))
-            compare(kdeSettings.height, 26)
+            compare(kdeSettings.height, Demo.LiquidStyle.toolbarButtonHeight)
             const kdeLogo = findChild(kdeSettings, "settingsKdeLogo")
             verify(kdeLogo !== null)
             tryCompare(kdeLogo, "status", Image.Ready)

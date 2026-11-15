@@ -325,6 +325,7 @@ Item {
         shown = true
         _noteFaceExposure()
     }
+    // motion-exception: Stage card flight, tilt and overshoot stay synchronized with configured KWin timings.
     Behavior on x { NumberAnimation { duration: StageConfigService.cardEnterDuration; easing.type: Easing.OutCubic } }
     // ⚠️ 无 Behavior on y：y 由窗口侧 layoutCards 经 slot（anchors 垂直
     // 居中）管理，这里没有 y 属性可动画；拖拽跟手走 slot.y 直赋
@@ -461,7 +462,8 @@ Item {
                 width: plate.width
                 height: plate.height
                 opacity: card.engaging ? 0.0 : 1.0
-                Behavior on opacity { NumberAnimation { duration: 160 } }
+                Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
+                // motion-exception: Fan spreading must match the compositor's 150ms OutCubic response.
                 Behavior on x { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
                 Behavior on y { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
@@ -559,7 +561,7 @@ Item {
                         : card.glowOn
                             ? Qt.rgba(0.62, 0.80, 1.0, 0.85)
                             : Qt.rgba(255, 255, 255, StageConfigService.cardBorder)
-                Behavior on fillColor { ColorAnimation { duration: 130 } }
+                Behavior on fillColor { ColorAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve } }
             }
         }
 
@@ -609,6 +611,7 @@ Item {
                     ? StageConfigService.cardGlow / Math.pow(2, index) : 0.0
                 Behavior on opacity {
                     NumberAnimation {
+                        // motion-exception: Card entry follows the configured compositor flight duration.
                         duration: StageConfigService.cardEnterDuration
                         easing.type: Easing.OutCubic
                     }
@@ -1076,7 +1079,7 @@ Item {
             visible: card.previewActive && !card.effectOwnedChrome
             opacity: (splitHit.containsMouse || card.isHovered || card.mergeGlow)
                 ? 1.0 : 0.35
-            Behavior on opacity { NumberAnimation { duration: 120 } }
+            Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
             Rectangle {
                 width: 9; height: 9; radius: 2
@@ -1171,8 +1174,8 @@ Item {
                         : "transparent"
                     border.width: iconSlot.containsMouse ? 1 : 0
                     border.color: Qt.rgba(0.62, 0.80, 1.0, 0.85)
-                    Behavior on color { ColorAnimation { duration: 120 } }
-                    IconImage {
+                    Behavior on color { ColorAnimation { duration: AppearanceTokens.motion.fast.duration; easing.type: AppearanceTokens.motion.enterCurve } }
+                    AppIcon {
                         anchors.fill: parent
                         anchors.margins: parent.width * 0.08
                         source: card.iconPairs[index]?.icon || card.iconSource || ""

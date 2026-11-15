@@ -1,5 +1,6 @@
 import Kos.Demo as Demo
 import QtQuick
+import Kos.Icons as Symbols
 import "pages" as Pages
 import "components" as SettingsControls
 import QtQuick.Controls
@@ -41,6 +42,7 @@ ApplicationWindow {
     flags: Qt.Window | Qt.FramelessWindowHint
 
     property int currentPage: 1
+    readonly property int navigationPage: currentPage === 14 ? 1 : currentPage
     property string requestedApp: ""
     function revealRequestedApp() {
         if (servicesPage.item) servicesPage.item.requestReveal()
@@ -52,8 +54,8 @@ ApplicationWindow {
     readonly property bool canGoBack: historyIndex > 0
     readonly property bool canGoForward: historyIndex < pageHistory.length - 1
     Component.onCompleted: {
-        pageHistory = [currentPage]
-        historyIndex = 0
+        pageHistory = currentPage === 14 ? [1, 14] : [currentPage]
+        historyIndex = pageHistory.length - 1
         navigationReady = true
     }
     onCurrentPageChanged: {
@@ -270,14 +272,16 @@ ApplicationWindow {
             subtitle: I18n.tr("Wallpaper")
         },
         {
-            subtitle: I18n.tr("Extensions and services")
+            subtitle: I18n.tr("Applications and services")
         },
         {
             subtitle: I18n.tr("Stage scheduling")
         },
         { subtitle: I18n.tr("Windows and animations") },
         { subtitle: I18n.tr("Notifications") },
-        { subtitle: I18n.tr("Power") }
+        { subtitle: I18n.tr("Power") },
+        { subtitle: I18n.tr("Fonts") },
+        { subtitle: I18n.tr("About") }
     ]
 
     // Shown only while a development session drives this window. Every value on
@@ -310,12 +314,11 @@ ApplicationWindow {
             radius: 14
             color: "#241700"
 
-            Text {
+            Symbols.Icon {
                 anchors.centerIn: parent
-                text: "!"
+                name: "exclamationmark"
                 color: "#ff9f0a"
-                font.pixelSize: 17
-                font.weight: Font.Bold
+                size: 17
             }
         }
 
@@ -333,12 +336,11 @@ ApplicationWindow {
             color: bannerCloseHit.containsMouse
                 ? Qt.rgba(0.14, 0.09, 0, 0.18) : "transparent"
 
-            Text {
+            Symbols.Icon {
                 anchors.centerIn: parent
-                text: "✕"
+                name: "xmark"
                 color: "#241700"
-                font.pixelSize: 15
-                font.weight: Font.Bold
+                size: 15
             }
 
             MouseArea {
@@ -400,7 +402,7 @@ ApplicationWindow {
         }
         leftPadding: 10
         rightPadding: 10
-        highlighted: !launchOnly && window.currentPage === pageIndex
+        highlighted: !launchOnly && window.navigationPage === pageIndex
         hoverEnabled: !launchOnly
         visible: window.searchText.length === 0
             || label.toLowerCase().indexOf(window.searchText.toLowerCase()) >= 0
@@ -428,7 +430,7 @@ ApplicationWindow {
                 iconName: navIcon
                 symbol: navSymbol
                 tint: navTint
-                highlighted: window.currentPage === pageIndex
+                highlighted: window.navigationPage === pageIndex
             }
             Text {
                 id: sidebarLabel
@@ -437,7 +439,7 @@ ApplicationWindow {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 text: label
-                color: window.currentPage === pageIndex
+                color: window.navigationPage === pageIndex
                     ? theme.selectedForeground : theme.primaryText
                 font.pixelSize: 13
                 font.weight: Font.Normal
@@ -713,7 +715,7 @@ ApplicationWindow {
                                 SidebarEntry {
                                     Layout.fillWidth: true
                                     pageIndex: 9
-                                    label: I18n.tr("Extensions and services")
+                                    label: I18n.tr("Applications and services")
                                     navIcon: "general"
                                     navSymbol: "◇"
                                     navTint: "#5ac8fa"
@@ -735,6 +737,15 @@ ApplicationWindow {
                                     navIcon: "desktop-dock"
                                     navSymbol: "⏵"
                                     navTint: "#ff9f0a"
+                                }
+
+                                SidebarEntry {
+                                    Layout.fillWidth: true
+                                    pageIndex: 15
+                                    label: I18n.tr("About")
+                                    navIcon: "general"
+                                    navSymbol: "ⓘ"
+                                    navTint: "#8e8e93"
                                 }
                             }
                         }
@@ -818,7 +829,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         active: window.displayedPage === 12
                         visible: active
-                        sourceComponent: NotificationsSettingsPage {
+                        sourceComponent: Pages.NotificationsSettingsPage {
                             theme: window.notificationTheme
                             bridge: typeof settingsBridge !== "undefined" ? settingsBridge : null
                         }
@@ -833,6 +844,7 @@ ApplicationWindow {
                             colors: window.notificationTheme
                             materialForm: window.materialForm
                             backend: typeof windowSettings !== "undefined" ? windowSettings : null
+                            bridge: typeof settingsBridge !== "undefined" ? settingsBridge : null
                         }
                     }
 
@@ -890,7 +902,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         active: window.displayedPage === 9
                         visible: active
-                        sourceComponent: ServicesSettingsPage {
+                        sourceComponent: Pages.ServicesSettingsPage {
                             onRevealRequested: function(card) {
                                 Qt.callLater(function() {
                                     if (!card || window.displayedPage !== 9) return
@@ -911,7 +923,7 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         active: window.displayedPage === 8
                         visible: active
-                        sourceComponent: WallpaperSettingsPage {
+                        sourceComponent: Pages.WallpaperSettingsPage {
                             scrollViewport: pageScroll
                             bridge: (typeof settingsBridge !== "undefined")
                                 ? settingsBridge : null
@@ -960,11 +972,36 @@ ApplicationWindow {
                     }
 
                     Loader {
+                        objectName: "AboutSettingsPageLoader"
+                        Layout.fillWidth: true
+                        active: window.displayedPage === 15
+                        visible: active
+                        sourceComponent: Pages.AboutSettingsPage {
+                            colors: window.notificationTheme
+                            cache: typeof aboutCache !== "undefined" ? aboutCache : null
+                        }
+                    }
+
+                    Loader {
+                        objectName: "FontSettingsPageLoader"
+                        Layout.fillWidth: true
+                        active: window.displayedPage === 14
+                        visible: active
+                        sourceComponent: Pages.FontSettingsPage {
+                            colors: window.notificationTheme
+                            materialForm: window.materialForm
+                            bridge: typeof settingsBridge !== "undefined" ? settingsBridge : null
+                            backend: typeof fontSettings !== "undefined" ? fontSettings : null
+                        }
+                    }
+
+                    Loader {
                         objectName: "ThemeSettingsPageLoader"
                         Layout.fillWidth: true
                         active: window.displayedPage === 1
                         visible: active
                         sourceComponent: Pages.ThemeSettingsPage {
+                            onFontsRequested: window.currentPage = 14
                             colors: window.notificationTheme
                             materialForm: window.materialForm
                             bridge: typeof settingsBridge !== "undefined" ? settingsBridge : null
@@ -1042,8 +1079,8 @@ ApplicationWindow {
             anchors.right: windowControls.left
             anchors.rightMargin: 22
             anchors.verticalCenter: windowControls.verticalCenter
-            width: 26
-            height: 26
+            width: Demo.LiquidStyle.toolbarButtonHeight
+            height: Demo.LiquidStyle.toolbarButtonHeight
             z: 2
             iconOnly: true
             contentItem: Item {
@@ -1080,15 +1117,15 @@ ApplicationWindow {
             x: contentSurface.x + 20
             y: windowControls.y + (windowControls.height - height) / 2
             width: Math.max(0, kdeSettingsButton.x - x - 12)
-            height: 26
+            height: Demo.LiquidStyle.toolbarButtonHeight
             spacing: 10
             z: 2
 
             Demo.LiquidActionButtonGroup {
                 objectName: "settingsHistoryNavigation"
                 Layout.preferredWidth: implicitWidth
-                Layout.preferredHeight: 26
-                buttonSize: 26
+                Layout.preferredHeight: implicitHeight
+                buttonSize: Demo.LiquidStyle.toolbarButtonHeight
                 icons: ["back", "forward"]
                 labels: [I18n.tr("Previous page"), I18n.tr("Next page")]
                 enabledActions: [window.canGoBack, window.canGoForward]

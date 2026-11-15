@@ -46,13 +46,13 @@ Item {
     property bool showTemperature: true
     property bool expanded: false
     property bool autoRotate: true
-    readonly property bool hasMusic: DockMprisService.hasPlayer
+    readonly property bool hasMusic: MediaService.hasPlayer
     readonly property bool hasWeather: WeatherService.available
-    readonly property var player: DockMprisService.activePlayer
+    readonly property var player: MediaService.activePlayer
     readonly property url artworkSource: {
-        const revision = DockMprisService.metadataRevision
+        const revision = MediaService.metadataRevision
         return player?.trackArtUrl ? player.trackArtUrl
-            : BundledIcons.source("default-cover")
+            : BundledIcons.source("media.coverFallback")
     }
     readonly property bool monochrome: IconAppearanceService.mode !== "color"
     readonly property int availablePageCount: availablePages().length
@@ -327,12 +327,12 @@ Item {
                             width: parent.width
                             height: parent.height * 0.50
 
-                            Text {
+                            BundledIcon {
                                 anchors.centerIn: parent
                                 visible: sideSlot.modelData === carousel.musicPage
-                                text: "♫"
+                                name: "media.fallback"
                                 color: "white"
-                                font.pixelSize: Math.max(10,
+                                size: Math.max(10,
                                     Math.round(carousel.iconSize * 0.54))
                             }
                             Text {
@@ -373,7 +373,7 @@ Item {
                             fontSizeMode: Text.HorizontalFit
                             minimumPixelSize: 5
                             font {
-                                family: "SF Pro Display"
+                                family: AppearanceTokens.typography.displayFamily
                                 pixelSize: Math.max(8,
                                     Math.round(carousel.iconSize * 0.42))
                                 weight: Font.DemiBold

@@ -15,7 +15,33 @@ ColumnLayout {
     objectName: "windowAppearancePage"
     spacing: 12
     property var backend: null
+    property var bridge: null
+    property var runningApps: []
+    property var appIcons: ({})
+    function appIcon(appId) {
+        if (Object.prototype.hasOwnProperty.call(appIcons, appId))
+            return appIcons[appId];
+        const source = bridge && typeof bridge.applicationIcon === "function" ? bridge.applicationIcon(appId) : "";
+        appIcons[appId] = source;
+        return source;
+    }
     readonly property var snapshot: backend ? backend.state : ({})
+    readonly property var availableRunningApps: {
+        const excluded = snapshot.buttonExclusions ?? [];
+        const apps = [];
+        for (const app of runningApps) {
+            const classes = [];
+            const reportedClasses = app.windowClasses || [];
+            for (let i = 0; i < reportedClasses.length; ++i) {
+                const cls = String(reportedClasses[i]);
+                if (cls && excluded.indexOf(cls) < 0 && !cls.split(" ").some(token => token && excluded.indexOf(token) >= 0))
+                    classes.push(cls);
+            }
+            if (app.appId && classes.length > 0)
+                apps.push({appId: app.appId, windowClasses: classes, label: (app.name || app.appId) + " · " + classes.join(", ")});
+        }
+        return apps;
+    }
     readonly property var radiusStops: [0, 8, 12, 20, 28, 36]
     readonly property var radiusLabels: [I18n.tr("Square corner"), I18n.tr("Slight round"), I18n.tr("Small"), I18n.tr("Standard"), I18n.tr("Large"), I18n.tr("Larger")]
     property int previewRadius: -1
@@ -26,9 +52,24 @@ ColumnLayout {
                 best = i;
         return best;
     }
+    function addManualExclusion() {
+        if (!backend || manualExclusionInput.text.trim().length === 0)
+            return;
+        if (backend.setButtonExclusion(manualExclusionInput.text, true))
+            manualExclusionInput.text = "";
+    }
+    Connections {
+        target: windowPage.bridge
+        enabled: windowPage.bridge !== null
+        function onFgSchedRunningAppsChanged(apps) {
+            windowPage.runningApps = apps || [];
+        }
+    }
     Component.onCompleted: {
         if (backend)
             backend.refresh();
+        if (bridge)
+            bridge.fgSchedRunningApps();
     }
 
     Demo.SettingsGroup {
@@ -38,6 +79,9 @@ ColumnLayout {
 
         Demo.SettingsItem {
             title: I18n.tr("KOS window appearance")
+            separator: false
+            verticalPadding: 4
+            description: I18n.tr("Radius and shadow apply now; turning KOS off restores the original decorator on next login.")
 
             Controls.SettingsSwitch {
                 enabled: windowPage.backend !== null
@@ -80,6 +124,25 @@ ColumnLayout {
 
         Demo.SettingsItem {
             enabled: windowPage.backend !== null && windowPage.snapshot.enabled !== false
+            title: I18n.tr("Square corners when maximized")
+            separator: false
+            verticalPadding: 4
+            description: I18n.tr("Fullscreen uses square corners; restoring brings back the radius.")
+
+            Controls.SettingsSwitch {
+                objectName: "windowSquareMaximizedSwitch"
+                enabled: windowPage.backend !== null && windowPage.snapshot.enabled !== false
+                checked: windowPage.snapshot.squareMaximized === true
+                accentColor: colors.accent
+                trackColor: colors.divider
+                onToggled: function (checked) {
+                    windowPage.backend.setSquareMaximized(checked);
+                }
+            }
+        }
+
+        Demo.SettingsItem {
+            enabled: windowPage.backend !== null && windowPage.snapshot.enabled !== false
             title: I18n.tr("Window shadow")
 
             Controls.SettingsSwitch {
@@ -91,6 +154,18 @@ ColumnLayout {
                     windowPage.backend.setShadow(checked);
                 }
             }
+        }
+    }
+    Demo.SettingsGroup {
+        id: windowButtonRows
+        objectName: "windowButtonsGroup"
+        title: I18n.tr("Window buttons")
+        backgroundColor: colors.card
+
+        Controls.WindowButtonPreview {
+            objectName: "windowButtonsPreview"
+            colors: windowPage.colors
+            materialForm: windowPage.materialForm
         }
 
         Demo.SettingsItem {
@@ -118,15 +193,137 @@ ColumnLayout {
                 }
             }
         }
-    }
-    Text {
-        Layout.fillWidth: true
-        Layout.leftMargin: 13
-        Layout.rightMargin: 13
-        text: I18n.tr("Turning off KOS window appearance restores the original decorator. Radius and shadow apply immediately; decorator switches take effect on next login.")
-        color: colors.secondaryText
-        font.pixelSize: 11
-        wrapMode: Text.Wrap
+
+        Demo.SettingsItem {
+            enabled: windowPage.backend !== null && windowPage.snapshot.enabled !== false
+            title: I18n.tr("Resize button background separately")
+            verticalPadding: 4
+            description: I18n.tr("Right-click and drag the background edges; buttons stay fixed.")
+
+            Controls.SettingsSwitch {
+                objectName: "windowIndependentButtonBackground"
+                enabled: windowPage.backend !== null && windowPage.snapshot.enabled !== false
+                checked: windowPage.snapshot.independentButtonBackground === true
+                accentColor: colors.accent
+                trackColor: colors.divider
+                onToggled: function (checked) {
+                    windowPage.backend.setIndependentButtonBackground(checked);
+                }
+            }
+        }
+        Demo.SettingsItem {
+            title: I18n.tr("Hide KOS window buttons for selected apps")
+            separator: false
+            verticalPadding: 4
+            description: I18n.tr("Hide KOS buttons for listed apps; keep their original buttons.")
+        }
+        Repeater {
+            model: windowPage.snapshot.buttonExclusions ?? []
+            delegate: Demo.SettingsItem {
+                id: exclusionRow
+                required property string modelData
+                objectName: "windowButtonExclusionRow_" + modelData
+                allowStacking: false
+                minimumLabelWidth: 0
+                controlSpacing: 0
+                Accessible.name: modelData
+                RowLayout {
+                    implicitWidth: exclusionRow.availableWidth
+                    Layout.fillWidth: true
+                    spacing: 8
+                    Controls.ApplicationIcon {
+                        objectName: "windowButtonExclusionIcon_" + exclusionRow.modelData
+                        source: windowPage.appIcon(exclusionRow.modelData)
+                        fallbackColor: windowPage.colors.secondaryText
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        text: exclusionRow.modelData
+                        textFormat: Text.PlainText
+                        font.pixelSize: 12
+                        color: windowPage.colors.primaryText
+                        elide: Text.ElideRight
+                    }
+                    Controls.WindowButtonAction {
+                        objectName: "removeWindowButtonExclusion"
+                        text: I18n.tr("Remove")
+                        iconName: "close"
+                        enabled: windowPage.backend !== null
+                        onClicked: windowPage.backend.setButtonExclusion(exclusionRow.modelData, false)
+                    }
+                }
+            }
+        }
+        Demo.SettingsItem {
+            separator: false
+            verticalPadding: 4
+            description: windowPage.availableRunningApps.length === 0 ? I18n.tr("No apps available. Refresh or enter an app class below.") : ""
+            Controls.ApplicationIcon {
+                objectName: "windowButtonSelectedAppIcon"
+                source: windowPage.appIcon(windowPage.availableRunningApps[runningAppsBox.currentIndex]?.appId || "")
+                fallbackColor: windowPage.colors.secondaryText
+            }
+            Controls.SettingsSelect {
+                id: runningAppsBox
+                objectName: "windowButtonRunningApps"
+                colors: windowPage.colors
+                materialForm: windowPage.materialForm
+                implicitWidth: 180
+                implicitHeight: 24
+                Layout.minimumWidth: 80
+                Layout.preferredWidth: 180
+                model: windowPage.availableRunningApps
+                textRole: "label"
+                enabled: windowPage.bridge !== null && model.length > 0
+                property string selectedAppId: ""
+                currentIndex: Math.max(0, model.findIndex(app => app.appId === selectedAppId))
+                onActivated: function (index) {
+                    selectedAppId = model[index].appId;
+                }
+            }
+            Controls.WindowButtonAction {
+                objectName: "refreshWindowButtonRunningApps"
+                text: I18n.tr("Refresh")
+                iconName: "refreshRounded"
+                enabled: windowPage.bridge !== null
+                onClicked: {
+                    windowPage.appIcons = ({});
+                    windowPage.bridge.fgSchedRunningApps();
+                }
+            }
+            Controls.WindowButtonAction {
+                objectName: "addRunningWindowButtonExclusion"
+                text: I18n.tr("Add")
+                iconName: "plus"
+                enabled: windowPage.backend !== null && !!windowPage.availableRunningApps[runningAppsBox.currentIndex]?.appId
+                onClicked: {
+                    const app = windowPage.availableRunningApps[runningAppsBox.currentIndex];
+                    if (app)
+                        for (const cls of app.windowClasses)
+                            windowPage.backend.setButtonExclusion(cls, true);
+                }
+            }
+        }
+        Demo.SettingsItem {
+            Demo.LiquidTextField {
+                id: manualExclusionInput
+                objectName: "windowButtonExclusionInput"
+                implicitWidth: 180
+                implicitHeight: 24
+                Layout.minimumWidth: 80
+                Layout.preferredWidth: 180
+                placeholderText: I18n.tr("Application class, e.g. md.obsidian.Obsidian")
+                onAccepted: windowPage.addManualExclusion()
+            }
+            Controls.WindowButtonAction {
+                objectName: "addManualWindowButtonExclusion"
+                text: I18n.tr("Add")
+                iconName: "plus"
+                enabled: windowPage.backend !== null && manualExclusionInput.text.trim().length > 0
+                onClicked: windowPage.addManualExclusion()
+            }
+        }
     }
 
     Demo.SettingsGroup {

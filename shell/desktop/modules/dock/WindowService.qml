@@ -256,10 +256,12 @@ QtObject {
             && left.title === right.title
             && left.identity.desktopId === right.identity.desktopId
             && left.identity.rawAppId === right.identity.rawAppId
+            && left.resourceClass === right.resourceClass
             && left.iconSource === right.iconSource
             && left.pid === right.pid
             && !!left.isUrgent === !!right.isUrgent
             && !!left.toplevel.activated === !!right.toplevel.activated
+            && !!left.toplevel.focusConfirmed === !!right.toplevel.focusConfirmed
             && !!left.toplevel.minimized === !!right.toplevel.minimized
             && !!left.toplevel.fullscreen === !!right.toplevel.fullscreen
             && !!left.onAllDesktops === !!right.onAllDesktops
@@ -316,6 +318,7 @@ QtObject {
             const handleId = useKwin ? String(source.id) : "";
             const toplevel = useKwin ? {
                 activated: !!source.activated,
+                focusConfirmed: source.focusConfirmed === true,
                 minimized: !!source.minimized,
                 fullscreen: !!source.fullscreen,
                 pid: Number(source.pid || 0),
@@ -364,6 +367,7 @@ QtObject {
                 provider: provider,
                 handleId: handleId,
                 identity: identity,
+                resourceClass: useKwin ? String(source.resourceClass || "") : String(toplevel.appId || ""),
                 pid: Number(toplevel.pid || 0),
                 iconSource: iconSource,
                 title: toplevel.title || identity.name || identity.desktopId,
@@ -842,18 +846,28 @@ QtObject {
         requestThumbnail(windowId)   // 立刻补拍，不等侧栏 1.5s 重试拍
     }
 
-    function activateWindow(windowId) {
+    // `options.forceAnim` asks the compositor to replay its reveal animation
+    // even when the window is already on screen. A notification click uses it:
+    // the window is being summoned from another surface, so it should arrive
+    // with the same animation a Dock click gets.
+    function activateWindow(windowId, options) {
         const record = windowById(windowId);
         if (!record) {
             console.warn("[WindowService] activate missing windowId=" + windowId);
-            return;
+            return false;
         }
         activationRequested(windowId);
         if (record.provider === "kwin") {
-            _enqueueKwinCommand({ action: "activate", id: record.handleId });
-            return;
+            _enqueueKwinCommand({ action: "activate", id: record.handleId,
+                forceAnim: options?.forceAnim === true, ticket: options?.ticket });
+            return true;
         }
-        try { record.toplevel.activate(); } catch (e) {}
+        try {
+            record.toplevel.activate();
+            return true;
+        } catch (e) {
+            return false;
+        }
     }
 
     // 整组一起展开（macOS 语义）：同应用全部窗口还原抬升、focusId 最后激活

@@ -10,6 +10,7 @@ The root README introduces the desktop in [English](../README.md), [简体中文
 
 | Topic | Canonical guide |
 | --- | --- |
+| Signed catalogs, third-party sources, update notifications and app submissions | [Applications and services](app-store/SignedCatalog.md), [appCatalog / Qt runtime](https://github.com/NextKde/appCatalog) |
 | Dependencies, install, update, uninstall | [Getting started](GettingStarted.md) |
 | NixOS declarative installation | [NixOS](nixos-quickstart.md) |
 | Window animation choices, native Genie and fallback | [Window animations](WindowAnimations.md) |
@@ -38,6 +39,7 @@ ownership; they are not chronological work logs or proof that a feature passed r
 | Wallpaper ownership and theme format | [Wallpaper](WallpaperArchitecture.md), [theme packs](ThemePackFormat.md), [depth engine](DepthEngine.md) |
 | Network, PIM and weather | [Network](NetworkArchitecture.md), [PIM](PimArchitecture.md), [weather](WeatherArchitecture.md) |
 | Independent applications and lifecycle | [Applications](../apps/README.md), [ListenFree](https://github.com/NextKde/ListenFree) |
+| Input method integration and compatibility | [Input method integration](InputMethodIntegration.md) |
 | Reusable QML components, Gallery and sidebar demo | [nextkdeAppDemo](https://github.com/NextKde/nextkdeAppDemo) |
 
 The component Gallery and sidebar demo are maintained in `nextkdeAppDemo`. Their preview
@@ -56,3 +58,5 @@ Do not commit session diaries, process screenshots, captured logs or temporary r
 artifacts. Keep project illustrations, required assets and third-party provenance. Removing a file
 from the current tree does not erase historical Git objects; shallow clones avoid downloading the
 old history. Do not rewrite published history as part of normal documentation cleanup.
+
+[Developer test mode](app-store/DeveloperTesting.md): test sources, selected Releases and manual restoration.

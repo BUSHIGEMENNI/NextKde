@@ -6,7 +6,7 @@ LiquidGlassPanel {
     id: root
 
     property string message: ""
-    property string iconName: "check"
+    property string iconName: "feedback.success"
     property int timeout: 2600
     property bool shown: false
     // Epoch ms at which the hold would end if the pointer never entered.
@@ -16,7 +16,7 @@ LiquidGlassPanel {
 
     function show(text, icon) {
         message = text
-        iconName = icon || "check"
+        iconName = icon || "feedback.success"
         shown = true
         dismissAt = Date.now() + timeout
         hold.interval = timeout
@@ -48,8 +48,8 @@ LiquidGlassPanel {
     opacity: shown ? 1 : 0
     scale: shown ? 1 : 0.96
     Accessible.name: message
-    Behavior on opacity { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
-    Behavior on scale { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+    Behavior on opacity { NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
+    Behavior on scale { NumberAnimation { duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.enterCurve } }
 
     Row {
         id: content

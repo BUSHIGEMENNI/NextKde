@@ -164,16 +164,16 @@ Item {
     Timer { interval: 60000; repeat: true; running: pane.active; onTriggered: pane.clockNow = Date.now() }
     Behavior on height {
         enabled: pane.active && pane.glassOpacity > 0.999 && !AppTheme.reduceMotion
-        NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: AppearanceTokens.motion.page.duration; easing.type: AppearanceTokens.motion.enterCurve }
     }
     Behavior on revealProgress {
-        NumberAnimation { duration: AppTheme.reduceMotion ? 0 : 300; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: AppTheme.reduceMotion ? 0 : AppearanceTokens.motion.page.duration; easing.type: AppearanceTokens.motion.enterCurve }
     }
     NumberAnimation {
         id: scrollHome
         target: historyList; property: "contentY"
-        duration: AppTheme.reduceMotion ? 0 : 220
-        easing.type: Easing.OutCubic
+        duration: AppTheme.reduceMotion ? 0 : AppearanceTokens.motion.slow.duration
+        easing.type: AppearanceTokens.motion.enterCurve
         onFinished: { historyList.positionViewAtBeginning(); pane.folding = false; pane.expanded = false }
     }
     onActiveChanged: if (!active) { historyList.cancelFlick(); scrollHome.stop(); folding = false }
@@ -198,7 +198,7 @@ Item {
         }
         readonly property bool backdropVisible: clipped.width > 0 && clipped.height > 0
         readonly property alias blurRegion: buttonGlass.blurRegion
-        implicitWidth: label.implicitWidth + 28
+        implicitWidth: contentItem.implicitWidth + 28
         implicitHeight: 32
         activeFocusOnTab: backdropVisible
         Accessible.name: text
@@ -247,7 +247,7 @@ Item {
     }
     DeckButton {
         anchors { right: parent.right; top: parent.top; topMargin: 1 }
-        text: "×"
+        contentItem: BundledIcon { name: "notification.clearAll"; size: 14; color: pane.ink; opacity: enabled ? 1 : 0.35 }
         implicitWidth: 30; implicitHeight: 30
         enabled: NotificationHistoryService.count > 0
         Accessible.name: I18n.tr("Clear all notifications")
@@ -270,11 +270,11 @@ Item {
         maximumFlickVelocity: 2200
         model: displayedRows
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded; width: 3 }
-        displaced: Transition { NumberAnimation { property: "y"; duration: 240; easing.type: Easing.OutCubic } }
+        displaced: Transition { NumberAnimation { property: "y"; duration: AppearanceTokens.motion.slow.duration; easing.type: AppearanceTokens.motion.enterCurve } }
         add: Transition {
             // The popup supplies its entrance fade. Only later arrivals need one.
             enabled: pane.active && pane.glassOpacity > 0.999 && !AppTheme.reduceMotion
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: 220 }
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: AppearanceTokens.motion.slow.duration; easing.type: AppearanceTokens.motion.enterCurve }
         }
         delegate: Item {
             id: cell
@@ -313,8 +313,8 @@ Item {
                 id: exitMotion
                 PauseAnimation { duration: pane.historyClearDelays[cell.painted.key] || 0 }
                 ParallelAnimation {
-                    NumberAnimation { target: cell; property: "x"; to: 18; duration: 180; easing.type: Easing.InCubic }
-                    NumberAnimation { target: cell; property: "opacity"; to: 0; duration: 180; easing.type: Easing.InCubic }
+                    NumberAnimation { target: cell; property: "x"; to: 18; duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.exitCurve }
+                    NumberAnimation { target: cell; property: "opacity"; to: 0; duration: AppearanceTokens.motion.base.duration; easing.type: AppearanceTokens.motion.exitCurve }
                 }
                 onFinished: { cell.releaseExit(); cell.ListView.delayRemove = false }
             }
@@ -390,6 +390,7 @@ Item {
             && emptyOutline.width > 0 && emptyOutline.height > 0
         Behavior on opacity {
             enabled: pane.active && !AppTheme.reduceMotion
+            // motion-exception: keep the existing empty-state glass crossfade.
             NumberAnimation { duration: 360; easing.type: Easing.InOutSine }
         }
         radius: 24
@@ -409,9 +410,34 @@ Item {
             id: footerButton
             objectName: "notification-history-expand"
             anchors.centerIn: parent
+            width: Math.min(implicitWidth, parent.width)
+            leftPadding: 14
+            rightPadding: 14
+            topPadding: 0
+            bottomPadding: 0
             visible: NotificationHistoryService.count > 0 && (NotificationHistoryService.count > 3 || pane.expanded)
             glassButton: true
-            text: pane.expanded ? I18n.tr("Collapse notifications  ⌃") : I18n.tr("More notifications  ·  %1  ⌄").arg(Math.max(0, NotificationHistoryService.count - 3))
+            text: pane.expanded ? I18n.tr("Collapse notifications") : I18n.tr("More notifications  ·  %1").arg(Math.max(0, NotificationHistoryService.count - 3))
+            contentItem: Item {
+                implicitWidth: footerLabel.implicitWidth + 5 + footerChevron.implicitWidth
+                implicitHeight: Math.max(footerLabel.implicitHeight, footerChevron.implicitHeight)
+                GlassText {
+                    id: footerLabel
+                    anchors { left: parent.left; right: footerChevron.left; rightMargin: 5; verticalCenter: parent.verticalCenter }
+                    text: footerButton.text
+                    color: pane.ink
+                    font { pixelSize: 11; weight: Font.Medium }
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                }
+                BundledIcon {
+                    id: footerChevron
+                    anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                    name: pane.expanded ? "notification.history.collapse" : "notification.history.expand"
+                    size: 11
+                    color: pane.ink
+                }
+            }
             onClicked: pane.requestExpanded(pane.folding || !pane.expanded)
         }
     }
